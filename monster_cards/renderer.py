@@ -34,6 +34,9 @@ class CardRenderer:
         self.c: canvas.Canvas | None = None
 
     def render(self, cards: Iterable[MonsterCard], output: str | Path) -> Path:
+        cards = list(cards)
+        for card in cards:
+            self._prepare_block_flow(card)
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
         self.c = canvas.Canvas(str(output), pagesize=(self.W, self.H))
@@ -137,13 +140,9 @@ class CardRenderer:
         self._center(text,self.W/2,y-15,font="black",size=size,color=self.MID)
         return y-h
 
-    def _block(self, y: float, block: RuleBlock, divider=True) -> float:
-        c = self.c; assert c
+    def _block_layout(self, block: RuleBlock):
         size = self.sizes["body"]
         x = self.M+7; right = self.W-self.M-7
-        if divider:
-            self._line(x,y+4,right,y+4,width=.45,color=self.DIVIDER)
-        c.setFillColor(self.DARK); c.setFont(self.fonts["bold"],size); c.drawString(x,y-8,block.title)
         titlew = stringWidth(block.title,self.fonts["bold"],size)+4
         firstw = max(20,right-(x+titlew))
         words = block.text.split(); lines=[]; cur=""; first_line=True
@@ -157,32 +156,77 @@ class CardRenderer:
                 else:
                     lines.append((word,first_line)); first_line=False; cur=""
         if cur: lines.append((cur,first_line))
+        return titlew, lines
+
+    def _block_height(self, block: RuleBlock) -> float:
+        _, lines = self._block_layout(block)
+        return 12 + len(lines) * self.sizes["body"] * 1.34
+
+    def _block(self, y: float, block: RuleBlock, divider=True) -> float:
+        c = self.c; assert c
+        size = self.sizes["body"]
+        x = self.M+7; right = self.W-self.M-7
+        if divider:
+            self._line(x,y+4,right,y+4,width=.45,color=self.DIVIDER)
+        c.setFillColor(self.DARK); c.setFont(self.fonts["bold"],size); c.drawString(x,y-8,block.title)
+        titlew, lines = self._block_layout(block)
         yy=y-8
         for text,is_first in lines:
             c.setFont(self.fonts["regular"],size); c.drawString(x+titlew if is_first else x,yy,text); yy-=size*1.34
         return yy-4
 
+    def _front_block_top(self, card: MonsterCard) -> float:
+        y = self.H-self.M-164
+        if card.quick_facts:
+            y -= 23
+        return y-7
+
+    def _back_text_floor(self, card: MonsterCard) -> float:
+        bot = 27
+        if not card.source_note:
+            return bot+8
+        lines = simpleSplit(card.source_note,self.fonts["regular"],4.7,(self.W-62)-20)
+        top_baseline = bot+8+5.5*(len(lines)-1)
+        return top_baseline+6
+
+    def _back_block_height(self, block: RuleBlock) -> float:
+        lines = simpleSplit(block.text,self.fonts["regular"],6.7,(self.W-62)-22)
+        return 27 + len(lines)*8.8
+
+    def _prepare_block_flow(self, card: MonsterCard):
+        """Measure blocks before drawing and move front overflow to the back."""
+        y = self._front_block_top(card)
+        front: list[RuleBlock] = []
+        carried: list[RuleBlock] = []
+        for index, block in enumerate(card.blocks):
+            next_y = y-self._block_height(block)
+            if next_y < 24:
+                carried.extend(card.blocks[index:])
+                break
+            front.append(block)
+            y = next_y
+
+        card.blocks = front
+        card.overflow = carried+card.overflow
+
+        y = self.H-58
+        floor = self._back_text_floor(card)
+        for block in card.overflow:
+            next_y = y-self._back_block_height(block)
+            if next_y < floor:
+                title = block.title or "untitled block"
+                raise RuntimeError(
+                    f"Text overflow for {card.name!r}: {title!r} does not fit on the back "
+                    f"({floor-next_y:.1f} pt too tall)"
+                )
+            y = next_y
+
     def _draw_front(self, card: MonsterCard):
         self._outer(); self._header(card); y=self._dashboard(card); y=self._facts(y,card.quick_facts); y-=7
-        # Generic source material can be dense. Flow what fits and move remainder
-        # to reverse automatically, before any explicit overflow blocks.
-        carried: list[RuleBlock] = []
         drew_block = False
         for block in card.blocks:
-            # Rough preflight: don't start another block below the safe floor.
-            if y < 50:
-                carried.append(block); continue
-            next_y = self._block(y,block,divider=drew_block)
+            y = self._block(y,block,divider=drew_block)
             drew_block = True
-            if next_y < 24:
-                # It was too big; we cannot erase from ReportLab, so this is the one
-                # intentionally conservative part of v0.1. Hand-curated overrides
-                # are recommended for dense cards.
-                y = next_y
-            else:
-                y = next_y
-        if carried:
-            card.overflow = carried + card.overflow
 
     def _draw_back(self, card: MonsterCard):
         c = self.c; assert c

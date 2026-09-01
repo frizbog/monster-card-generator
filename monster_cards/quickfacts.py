@@ -28,6 +28,14 @@ def choose_quick_facts(monster: dict[str, Any], max_items: int = 4) -> list[str]
     """
     candidates: list[tuple[int, str]] = []
 
+    additional_speeds = monster.get("_additional_speeds", [])
+    if isinstance(additional_speeds, list):
+        for speed in additional_speeds:
+            if speed:
+                # Every secondary movement mode belongs in the middle strip ahead
+                # of optional facts such as initiative, skills, and languages.
+                candidates.append((110, str(speed)))
+
     initiative = first(monster, "initiative", "initiative_bonus")
     if initiative is not None:
         candidates.append((100, f"Init {signed(initiative)}"))
@@ -74,13 +82,15 @@ def choose_quick_facts(monster: dict[str, Any], max_items: int = 4) -> list[str]
     candidates.sort(key=lambda x: x[0], reverse=True)
     facts: list[str] = []
     chars = 0
-    for _, text in candidates:
+    required_speed_count = len([speed for speed in additional_speeds if speed]) if isinstance(additional_speeds, list) else 0
+    item_limit = max(max_items, required_speed_count)
+    for priority, text in candidates:
         # Keep the strip compact; renderer can still shrink a bit if needed.
         projected = chars + len(text) + (3 if facts else 0)
-        if projected > 105 and facts:
+        if projected > 105 and facts and priority < 110:
             continue
         facts.append(text)
         chars = projected
-        if len(facts) >= max_items:
+        if len(facts) >= item_limit:
             break
     return facts

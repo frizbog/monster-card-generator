@@ -77,6 +77,8 @@ class SRDRepository:
                     continue
                 obj = self._unwrap(obj)
                 if isinstance(obj, dict) and obj.get("name"):
+                    if collection == "monsters":
+                        obj = self._with_monster_sections(obj)
                     found[slugify(str(obj["name"]))] = obj
             if found:
                 return found
@@ -108,6 +110,55 @@ class SRDRepository:
                 return found
 
         return {}
+
+    def _with_monster_sections(self, monster: dict[str, Any]) -> dict[str, Any]:
+        """Attach action/trait sections used by extracted SRD 5.2.1 data.
+
+        That repository's resource files contain the stat-line and ability table,
+        while operational text is stored in sibling section files.  Present those
+        sections through the same keys consumed by the schema-tolerant normalizer.
+        """
+        source = monster.get("source")
+        if not isinstance(source, dict):
+            return monster
+        document_id = source.get("documentId")
+        section_id = source.get("sectionId")
+        if not document_id or not section_id:
+            return monster
+
+        sections_dir = self.root / "data" / "sections"
+        if not sections_dir.is_dir():
+            return monster
+
+        key_for_title = {
+            "traits": "special_abilities",
+            "actions": "actions",
+            "bonus actions": "bonus_actions",
+            "reactions": "reactions",
+            "legendary actions": "legendary_actions",
+        }
+        attached: dict[str, list[dict[str, str]]] = {}
+        pattern = f"{document_id}--{section_id}-*.json"
+        for path in sections_dir.glob(pattern):
+            try:
+                section = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            # Only group sections immediately below this monster. Descendants are
+            # already flattened into their parent group's content by the extractor.
+            if section.get("parentId") != section_id:
+                continue
+            title = str(section.get("title", "")).strip()
+            key = key_for_title.get(title.casefold())
+            text = section.get("content") or section.get("text")
+            if key and text:
+                attached.setdefault(key, []).append({"name": title, "text": str(text)})
+
+        if not attached:
+            return monster
+        result = dict(monster)
+        result.update(attached)
+        return result
 
     @staticmethod
     def _unwrap(obj: Any) -> Any:

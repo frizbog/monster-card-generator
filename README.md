@@ -134,6 +134,17 @@ python cards.py monster "Goblin Warrior" \
 
 That command is very useful while adapting to a particular upstream JSON schema.
 
+You can also generate several monsters into one PDF directly from the command line:
+
+```bash
+python cards.py monster "Goblin Warrior" "Goblin Boss" "Worg" \
+  --srd ../dnd-srd-json \
+  --out output/goblins.pdf
+```
+
+Without `--out`, a multi-monster command writes to `output/monster-cards.pdf`.
+Use a kit file instead when individual monsters need different override files.
+
 ## 7. Editorial overrides
 
 Automatic normalization is intentionally not the final word. Dense monsters, casters, or creatures with awkward source text should get small override files.

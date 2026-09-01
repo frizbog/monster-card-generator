@@ -27,8 +27,8 @@ def main() -> int:
     p_inspect = sub.add_parser("inspect-srd", help="Show whether the local SRD repository can be read.")
     p_inspect.add_argument("--srd", required=True)
 
-    p_monster = sub.add_parser("monster", help="Render one monster from the local SRD repository.")
-    p_monster.add_argument("name")
+    p_monster = sub.add_parser("monster", help="Render one or more monsters from the local SRD repository.")
+    p_monster.add_argument("name", nargs="+", help="One or more monster names (quote names containing spaces).")
     p_monster.add_argument("--srd", required=True)
     p_monster.add_argument("--override", help="Optional JSON editorial override for display/card text.")
     p_monster.add_argument("--out")
@@ -55,13 +55,23 @@ def main() -> int:
 
         if args.command == "monster":
             repo = SRDRepository(args.srd)
-            card = monster_to_card(repo.monster(args.name))
-            card = apply_override(card, load_override(args.override))
+            if args.override and len(args.name) > 1:
+                raise RuntimeError("--override can only be used when rendering one monster; use a kit for per-monster overrides")
+            cards = []
+            for name in args.name:
+                card = monster_to_card(repo.monster(name))
+                cards.append(apply_override(card, load_override(args.override)))
             if args.dump_normalized:
-                print(json.dumps(card.to_dict(), indent=2))
+                payload = cards[0].to_dict() if len(cards) == 1 else [card.to_dict() for card in cards]
+                print(json.dumps(payload, indent=2))
                 return 0
-            out = args.out or str(ROOT / "output" / f"{args.name.lower().replace(' ','-')}.pdf")
-            path = CardRenderer(args.style).render([card], out)
+            if args.out:
+                out = args.out
+            elif len(args.name) == 1:
+                out = str(ROOT / "output" / f"{args.name[0].lower().replace(' ','-')}.pdf")
+            else:
+                out = str(ROOT / "output" / "monster-cards.pdf")
+            path = CardRenderer(args.style).render(cards, out)
             print(path)
             return 0
 
