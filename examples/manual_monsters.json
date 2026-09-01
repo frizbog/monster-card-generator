@@ -1,0 +1,55 @@
+[
+  {
+    "name": "Goblin Warrior",
+    "subtitle": "Small Fey (Goblinoid), Chaotic Neutral",
+    "cr": "1/4",
+    "ac": 15,
+    "hp": 10,
+    "speed": "30'",
+    "passive_perception": 9,
+    "abilities": {
+      "STR": {"score": 8, "modifier": -1},
+      "DEX": {"score": 15, "modifier": 2},
+      "CON": {"score": 10, "modifier": 0},
+      "INT": {"score": 10, "modifier": 0},
+      "WIS": {"score": 8, "modifier": -1},
+      "CHA": {"score": 8, "modifier": -1}
+    },
+    "quick_facts": ["Init +2", "Stealth +6", "Darkvision 60 ft."],
+    "blocks": [
+      {"title": "Scimitar:", "text": "+4 ATK · 5 ft. · 5 (1d6+2) slashing; +2 (1d4) slashing if attack had Advantage."},
+      {"title": "Shortbow:", "text": "+4 ATK · 80/320 ft. · 5 (1d6+2) piercing; +2 (1d4) piercing if attack had Advantage."},
+      {"title": "Bonus Action - Nimble Escape:", "text": "Take the Disengage or Hide action."}
+    ],
+    "source_note": "Bundled smoke-test data. Use the SRD adapter for authoritative local source data."
+  },
+  {
+    "name": "Human Cultist (Caster)",
+    "subtitle": "Medium Humanoid",
+    "cr": "2",
+    "ac": 13,
+    "hp": 44,
+    "speed": "30'",
+    "passive_perception": 12,
+    "abilities": {
+      "STR": {"score": 11, "modifier": 0},
+      "DEX": {"score": 14, "modifier": 2},
+      "CON": {"score": 12, "modifier": 1},
+      "INT": {"score": 10, "modifier": 0},
+      "WIS": {"score": 14, "modifier": 2},
+      "CHA": {"score": 13, "modifier": 1}
+    },
+    "quick_facts": ["Init +2", "WIS save +4", "Religion +2"],
+    "blocks": [
+      {"title": "Pact Blade:", "text": "+4 ATK · 5 ft. · 6 (1d8+2) slashing + 7 (2d6) necrotic."},
+      {"title": "Spellcasting:", "text": "WIS · save DC 12 · +4 spell attacks. At will: Light, Thaumaturgy. 2/day: Command. 1/day: Hold Person."},
+      {"title": "Bonus Action - Spiritual Weapon (2/day):", "text": "Cast Spiritual Weapon. Operational spell text on reverse."}
+    ],
+    "overflow": [
+      {"title": "COMMAND", "meta": "ACTION · 60 ft. · WIS DC 12", "text": "Operational summary goes here. Store tested summaries in overrides rather than re-summarizing every time."},
+      {"title": "HOLD PERSON", "meta": "ACTION · 60 ft. · CONC.", "text": "Operational summary goes here."},
+      {"title": "SPIRITUAL WEAPON", "meta": "BONUS · 60 ft.", "text": "Operational summary goes here."}
+    ],
+    "source_note": "Bundled smoke-test data. Use the SRD adapter for authoritative local source data."
+  }
+]

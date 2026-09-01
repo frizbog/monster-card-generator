@@ -1,0 +1,32 @@
+{
+  "page_width_in": 4.25,
+  "page_height_in": 5.5,
+  "margin_pt": 12,
+  "colors": {
+    "teal": "#17657f",
+    "dark": "#263238",
+    "mid": "#52636a",
+    "grid": "#36515b",
+    "gray": "#7d8589",
+    "divider": "#86979d"
+  },
+  "fonts": {
+    "family": "Noto Sans",
+    "name_weight": "black",
+    "body_weight": "regular",
+    "label_weight": "bold"
+  },
+  "sizes": {
+    "monster_name": 19,
+    "subtype": 9,
+    "cr": 10,
+    "dashboard_label": 8,
+    "dashboard_value": 16,
+    "ability_label": 6.8,
+    "ability_modifier": 16,
+    "ability_score": 7.2,
+    "quick_facts": 8.5,
+    "body": 7.0,
+    "edge_label": 6.4
+  }
+}

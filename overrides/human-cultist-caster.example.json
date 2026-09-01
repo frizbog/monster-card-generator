@@ -1,0 +1,11 @@
+{
+  "name": "Human Cultist (Caster)",
+  "quick_facts": ["Init +2", "WIS save +4", "Religion +2"],
+  "overflow": [
+    {
+      "title": "COMMAND",
+      "meta": "ACTION · 60 ft.",
+      "text": "Put your tested operational summary here. This file is intentionally editorial rather than regenerated from the SRD every run."
+    }
+  ]
+}
