@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Iterable
 
 from reportlab.lib.colors import HexColor, white
@@ -190,8 +191,62 @@ class CardRenderer:
         return top_baseline+6
 
     def _back_block_height(self, block: RuleBlock) -> float:
-        lines = simpleSplit(block.text,self.fonts["regular"],6.7,(self.W-62)-22)
-        return 27 + len(lines)*8.8
+        if block.meta:
+            lines = simpleSplit(block.text,self.fonts["regular"],6.7,(self.W-62)-22)
+            return 27 + len(lines)*8.8
+        _, lines = self._back_inline_layout(block)
+        return 5 + len(lines)*8.8
+
+    def _back_inline_layout(self, block: RuleBlock):
+        size = 6.7
+        width = (self.W-62)-22
+        titlew = stringWidth(block.title,self.fonts["black"],8.3)+4
+        firstw = max(20,width-titlew)
+        words = block.text.split(); lines=[]; cur=""; first_line=True
+        while words:
+            word=words.pop(0); test=(cur+" "+word).strip(); limit=firstw if first_line else width
+            if stringWidth(test,self.fonts["regular"],size)<=limit:
+                cur=test
+            else:
+                if cur:
+                    lines.append((cur,first_line)); first_line=False; cur=word
+                else:
+                    lines.append((word,first_line)); first_line=False; cur=""
+        if cur:
+            lines.append((cur,first_line))
+        return titlew, lines
+
+    @staticmethod
+    def _continuation_title(title: str) -> str:
+        base = title.rstrip(":")
+        if base.endswith(" (cont.)"):
+            return f"{base}:"
+        return f"{base} (cont.):" if base else "(cont.):"
+
+    def _split_block_to_fit(self, block: RuleBlock, max_height: float):
+        """Return the largest readable prefix that fits and its continuation."""
+        text = block.text.strip()
+        if not text:
+            return None
+
+        # Prefer complete sentences. If none fit, back off through word boundaries.
+        sentence_boundaries = [
+            match.end() for match in re.finditer(r"[.!?](?:['\"])?\s+(?=[A-Z])", text)
+        ]
+        word_boundaries = [match.start() for match in re.finditer(r"\s+", text)]
+        for boundaries in (sentence_boundaries, word_boundaries):
+            for boundary in reversed(boundaries):
+                prefix_text = text[:boundary].strip()
+                remainder_text = text[boundary:].strip()
+                if not remainder_text or len(prefix_text.split()) < 3:
+                    continue
+                prefix = RuleBlock(block.title, prefix_text, block.kind, block.meta)
+                if self._block_height(prefix) <= max_height:
+                    remainder = RuleBlock(
+                        self._continuation_title(block.title), remainder_text, block.kind, block.meta
+                    )
+                    return prefix, remainder
+        return None
 
     def _prepare_block_flow(self, card: MonsterCard):
         """Measure blocks before drawing and move front overflow to the back."""
@@ -201,7 +256,14 @@ class CardRenderer:
         for index, block in enumerate(card.blocks):
             next_y = y-self._block_height(block)
             if next_y < 24:
-                carried.extend(card.blocks[index:])
+                split = self._split_block_to_fit(block, y-24)
+                if split:
+                    prefix, remainder = split
+                    front.append(prefix)
+                    carried.append(remainder)
+                    carried.extend(card.blocks[index+1:])
+                else:
+                    carried.extend(card.blocks[index:])
                 break
             front.append(block)
             y = next_y
@@ -243,14 +305,21 @@ class CardRenderer:
         y=self.H-58
         for index, block in enumerate(card.overflow):
             if index:
-                self._line(left+10,y+5,right-10,y+5,width=.45,color=self.DIVIDER)
-            c.setFillColor(self.DARK); c.setFont(self.fonts["black"],8.3); c.drawString(left+11,y-8,block.title)
+                self._line(left+10,y+2,right-10,y+2,width=.45,color=self.DIVIDER)
+            title_y = y-8 if block.meta else y-4
+            c.setFillColor(self.DARK); c.setFont(self.fonts["black"],8.3); c.drawString(left+11,title_y,block.title)
             if block.meta:
                 c.setFont(self.fonts["bold"],6.4); c.setFillColor(self.MID); c.drawRightString(right-11,y-8,block.meta)
-            yy=y-21; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],6.7)
-            for ln in simpleSplit(block.text,self.fonts["regular"],6.7,(right-left)-22):
-                c.drawString(left+11,yy,ln); yy-=8.8
-            y=yy-6
+                yy=y-21; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],6.7)
+                for ln in simpleSplit(block.text,self.fonts["regular"],6.7,(right-left)-22):
+                    c.drawString(left+11,yy,ln); yy-=8.8
+                y=yy-6
+            else:
+                titlew, lines = self._back_inline_layout(block)
+                yy=y-4; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],6.7)
+                for text, is_first in lines:
+                    c.drawString(left+11+titlew if is_first else left+11,yy,text); yy-=8.8
+                y=yy-1
         if card.source_note:
             c.setFillColor(self.GRAY); c.setFont(self.fonts["regular"],4.7)
             lines=simpleSplit(card.source_note,self.fonts["regular"],4.7,right-left-20)

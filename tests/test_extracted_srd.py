@@ -41,9 +41,45 @@ class ExtractedSRDTests(unittest.TestCase):
                     "Shortbow. Ranged Attack Roll: +4, range 80/320 ft. Hit: 5 Piercing damage."
                 ),
             }
+            trait_section = {
+                "title": "Traits",
+                "parentId": "goblin-warrior",
+                "content": "Sneaky. The goblin has Advantage on stealthy tests. Escape Artist. The goblin slips away.",
+            }
+            reaction_section = {
+                "title": "Reactions",
+                "parentId": "goblin-warrior",
+                "content": "Parry. Trigger: The goblin is hit. Response: The goblin gains 2 AC against the attack.",
+            }
+            bonus_section = {
+                "title": "Bonus Actions",
+                "parentId": "goblin-warrior",
+                "content": "Nimble Escape. The goblin takes the Disengage or Hide action.",
+            }
+            legendary_section = {
+                "title": "Legendary Actions",
+                "parentId": "goblin-warrior",
+                "content": (
+                    "Legendary Action Uses: 2. Immediately after another creature's turn, the goblin can act. "
+                    "The goblin regains all uses at the start of its turn. Skitter. The goblin moves 10 feet. "
+                    "Quick Slash (Costs 2 Actions). The goblin makes one Scimitar attack."
+                ),
+            }
             (resources / "goblin-warrior.json").write_text(json.dumps(resource), encoding="utf-8")
             (sections / "monsters-a-z--goblin-warrior-actions.json").write_text(
                 json.dumps(action_section), encoding="utf-8"
+            )
+            (sections / "monsters-a-z--goblin-warrior-traits.json").write_text(
+                json.dumps(trait_section), encoding="utf-8"
+            )
+            (sections / "monsters-a-z--goblin-warrior-reactions.json").write_text(
+                json.dumps(reaction_section), encoding="utf-8"
+            )
+            (sections / "monsters-a-z--goblin-warrior-bonus-actions.json").write_text(
+                json.dumps(bonus_section), encoding="utf-8"
+            )
+            (sections / "monsters-a-z--goblin-warrior-legendary-actions.json").write_text(
+                json.dumps(legendary_section), encoding="utf-8"
             )
 
             card = monster_to_card(SRDRepository(root).monster("Goblin Warrior"))
@@ -57,9 +93,17 @@ class ExtractedSRDTests(unittest.TestCase):
             self.assertEqual(card.abilities["DEX"].modifier, 2)
             self.assertEqual(card.passive_perception, "9")
             self.assertIn("Stealth +6", card.quick_facts)
-            self.assertEqual([block.title for block in card.blocks], ["Scimitar:", "Shortbow:"])
-            self.assertTrue(card.blocks[0].text.startswith("Melee Attack Roll:"))
-            self.assertTrue(card.blocks[1].text.startswith("Ranged Attack Roll:"))
+            self.assertEqual(
+                [block.title for block in card.blocks],
+                [
+                    "Sneaky:", "Escape Artist:", "Scimitar:", "Shortbow:",
+                    "Bonus Action - Nimble Escape:", "Reaction - Parry:",
+                    "Legendary Actions:", "Skitter:",
+                    "Quick Slash (Costs 2 Actions):",
+                ],
+            )
+            self.assertTrue(card.blocks[2].text.startswith("Melee Attack Roll:"))
+            self.assertTrue(card.blocks[3].text.startswith("Ranged Attack Roll:"))
 
     def test_incomplete_schema_fails_instead_of_rendering_defaults(self):
         with self.assertRaisesRegex(NormalizationError, "schema may not be supported"):

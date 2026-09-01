@@ -209,23 +209,46 @@ def _looks_like_action_title(value: str) -> bool:
     return all(word.casefold() in allowed_lowercase or word[0].isupper() for word in words)
 
 
-def _split_grouped_actions(text: str) -> list[tuple[str, str]]:
-    """Recover individual actions from an extractor-flattened Actions section."""
+def _split_grouped_entries(text: str, allow_preamble: bool = False) -> tuple[str, list[tuple[str, str]]]:
+    """Recover named entries from an extractor-flattened rules section."""
     starts: list[tuple[int, int, str]] = []
     for match in re.finditer(r"(?:^|(?<=\. ))([^.!?]{1,80})\.\s+", text):
         title = match.group(1).strip()
         if _looks_like_action_title(title):
             starts.append((match.start(1), match.end(), title))
-    if not starts or starts[0][0] != 0:
-        return []
+    if not starts or (starts[0][0] != 0 and not allow_preamble):
+        return "", []
 
-    actions: list[tuple[str, str]] = []
+    preamble = text[:starts[0][0]].strip() if starts[0][0] else ""
+    entries: list[tuple[str, str]] = []
     for index, (_, body_start, title) in enumerate(starts):
         body_end = starts[index + 1][0] if index + 1 < len(starts) else len(text)
         body = text[body_start:body_end].strip()
         if body:
-            actions.append((title, body))
-    return actions
+            entries.append((title, body))
+    return preamble, entries
+
+
+def _append_grouped_blocks(
+    result: list[RuleBlock],
+    value: Any,
+    group_name: str,
+    title_prefix: str = "",
+    allow_preamble: bool = False,
+) -> None:
+    for name, desc in _iter_named_blocks(value):
+        if name.casefold() != group_name.casefold():
+            result.append(RuleBlock(f"{title_prefix}{name}:", desc, "full"))
+            continue
+        preamble, entries = _split_grouped_entries(desc, allow_preamble=allow_preamble)
+        if preamble:
+            result.append(RuleBlock(f"{group_name}:", preamble, "full"))
+        if entries:
+            result.extend(RuleBlock(f"{title_prefix}{title}:", text, "full") for title, text in entries)
+        elif not preamble:
+            # Keep unfamiliar source text intact rather than risk a bad split.
+            fallback_title = "" if group_name.casefold() == "actions" else f"{group_name}:"
+            result.append(RuleBlock(fallback_title, desc, "full"))
 
 
 def _blocks(monster: dict[str, Any]) -> list[RuleBlock]:
@@ -237,30 +260,12 @@ def _blocks(monster: dict[str, Any]) -> list[RuleBlock]:
 
     # Traits before actions only when they are operationally relevant. This generic
     # importer cannot judge perfectly, so it preserves source order within groups.
-    for name, desc in _iter_named_blocks(traits):
-        title = "Traits:" if name.casefold() == "traits" else f"{name}:"
-        result.append(RuleBlock(title, desc, "full"))
-    for name, desc in _iter_named_blocks(actions):
-        if name.casefold() == "actions":
-            split_actions = _split_grouped_actions(desc)
-            if split_actions:
-                result.extend(RuleBlock(f"{title}:", text, "full") for title, text in split_actions)
-            else:
-                # Still omit the redundant group heading if an unfamiliar action
-                # format cannot be split safely.
-                result.append(RuleBlock("", desc, "full"))
-        else:
-            result.append(RuleBlock(f"{name}:", desc, "full"))
-    for name, desc in _iter_named_blocks(bonus):
-        title = "Bonus Actions:" if name.casefold() == "bonus actions" else f"Bonus Action - {name}:"
-        result.append(RuleBlock(title, desc, "full"))
-    for name, desc in _iter_named_blocks(reactions):
-        title = "Reactions:" if name.casefold() == "reactions" else f"Reaction - {name}:"
-        result.append(RuleBlock(title, desc, "full"))
+    _append_grouped_blocks(result, traits, "Traits")
+    _append_grouped_blocks(result, actions, "Actions")
+    _append_grouped_blocks(result, bonus, "Bonus Actions", "Bonus Action - ")
+    _append_grouped_blocks(result, reactions, "Reactions", "Reaction - ")
     legendary = first(monster, "legendary_actions", "legendaryActions", default=[])
-    for name, desc in _iter_named_blocks(legendary):
-        title = "Legendary Actions:" if name.casefold() == "legendary actions" else f"Legendary Action - {name}:"
-        result.append(RuleBlock(title, desc, "full"))
+    _append_grouped_blocks(result, legendary, "Legendary Actions", allow_preamble=True)
     return result
 
 

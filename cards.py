@@ -88,8 +88,16 @@ def main() -> int:
                     override = entry.get("override")
                     if override:
                         override = str((kit_path.parent / override).resolve())
-                card = monster_to_card(repo.monster(name))
+                try:
+                    monster = repo.monster(name)
+                except SRDError as exc:
+                    print(f"WARNING: Skipping {name!r}: {exc}", file=sys.stderr)
+                    continue
+                card = monster_to_card(monster)
                 cards.append(apply_override(card, load_override(override)))
+            if not cards:
+                print("WARNING: No kit monsters were found; no PDF was written.", file=sys.stderr)
+                return 0
             out = args.out or str(ROOT / "output" / f"{kit_path.stem}.pdf")
             path = CardRenderer(args.style).render(cards, out)
             print(path)

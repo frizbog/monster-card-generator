@@ -208,6 +208,9 @@ Run:
 python cards.py kit kits/example-goblins.json --srd ../dnd-srd-json
 ```
 
+If a kit names a monster that is not present in the SRD, the command prints a
+warning, skips that entry, and continues rendering the remaining monsters.
+
 Entries can also name an override:
 
 ```json
