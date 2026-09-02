@@ -14,24 +14,28 @@ from monster_cards.srd import SRDError, SRDRepository
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_STYLE = ROOT / "config" / "card_style.json"
+DEFAULT_SRD = "../dnd-srd-json"
+DEFAULT_CUSTOM_MONSTERS = ROOT / "custom"
 
 
 def main() -> int:
     location_help = """location examples:
-  --srd ../dnd-srd-json
-  --custom-monsters custom/monsters-a-z.json
+  --srd /path/to/dnd-srd-json
+  --custom-monsters /path/to/custom-folder
 
-The SRD argument is the repository directory. The custom argument is optional
-and accepts either a monsters-a-z.json file or a directory containing that file.
+The SRD repository defaults to ../dnd-srd-json. Use --srd to select a different
+repository directory. By default, every .json file in this project's custom/
+directory is loaded alongside the SRD. Use --custom-monsters to select a
+different JSON file or directory.
 """
     parser = argparse.ArgumentParser(
         description="Generate fast-play D&D monster cards as PDFs.",
         epilog="""examples:
-  cards.py monster "Goblin Warrior" --srd ../dnd-srd-json
-  cards.py monster "Clockwork Goblin" --srd ../dnd-srd-json \\
-    --custom-monsters custom/monsters-a-z.json
-  cards.py kit kits/goblins.json --srd ../dnd-srd-json \\
-    --custom-monsters custom/monsters-a-z.json
+  cards.py monster "Goblin Warrior"
+  cards.py monster "Clockwork Goblin" \\
+    --custom-monsters custom
+  cards.py kit kits/goblins.json --srd /path/to/dnd-srd-json \\
+    --custom-monsters /path/to/custom-folder
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -45,16 +49,16 @@ and accepts either a monsters-a-z.json file or a directory containing that file.
         "inspect-srd", help="Show whether the local SRD repository can be read.",
         epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_inspect.add_argument("--srd", required=True, metavar="SRD_REPO", help="Path to the SRD repository directory (for example, ../dnd-srd-json).")
-    p_inspect.add_argument("--custom-monsters", metavar="MONSTERS_A_Z", help="Optional path to a custom monsters-a-z.json file or its containing directory.")
+    p_inspect.add_argument("--srd", default=DEFAULT_SRD, metavar="SRD_REPO", help="Path to the SRD repository directory (default: %(default)s).")
+    p_inspect.add_argument("--custom-monsters", default=str(DEFAULT_CUSTOM_MONSTERS), metavar="CUSTOM_PATH", help="Custom monster JSON file or directory (default: project's custom/ directory; all *.json files there are loaded).")
 
     p_monster = sub.add_parser(
         "monster", help="Render one or more monsters from the local SRD repository.",
         epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_monster.add_argument("name", nargs="+", help="One or more monster names (quote names containing spaces).")
-    p_monster.add_argument("--srd", required=True, metavar="SRD_REPO", help="Path to the SRD repository directory (for example, ../dnd-srd-json).")
-    p_monster.add_argument("--custom-monsters", metavar="MONSTERS_A_Z", help="Optional path to a custom monsters-a-z.json file or its containing directory.")
+    p_monster.add_argument("--srd", default=DEFAULT_SRD, metavar="SRD_REPO", help="Path to the SRD repository directory (default: %(default)s).")
+    p_monster.add_argument("--custom-monsters", default=str(DEFAULT_CUSTOM_MONSTERS), metavar="CUSTOM_PATH", help="Custom monster JSON file or directory (default: project's custom/ directory; all *.json files there are loaded).")
     p_monster.add_argument("--override", help="Optional JSON editorial override for display/card text.")
     p_monster.add_argument("--out")
     p_monster.add_argument("--style", default=str(DEFAULT_STYLE))
@@ -65,8 +69,8 @@ and accepts either a monsters-a-z.json file or a directory containing that file.
         epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_kit.add_argument("kit_file")
-    p_kit.add_argument("--srd", required=True, metavar="SRD_REPO", help="Path to the SRD repository directory (for example, ../dnd-srd-json).")
-    p_kit.add_argument("--custom-monsters", metavar="MONSTERS_A_Z", help="Optional path to a custom monsters-a-z.json file or its containing directory.")
+    p_kit.add_argument("--srd", default=DEFAULT_SRD, metavar="SRD_REPO", help="Path to the SRD repository directory (default: %(default)s).")
+    p_kit.add_argument("--custom-monsters", default=str(DEFAULT_CUSTOM_MONSTERS), metavar="CUSTOM_PATH", help="Custom monster JSON file or directory (default: project's custom/ directory; all *.json files there are loaded).")
     p_kit.add_argument("--out")
     p_kit.add_argument("--style", default=str(DEFAULT_STYLE))
 

@@ -4,10 +4,47 @@ import tempfile
 import unittest
 
 from monster_cards.normalize import NormalizationError, monster_to_card
-from monster_cards.srd import SRDRepository
+from monster_cards.srd import SRDError, SRDRepository
 
 
 class ExtractedSRDTests(unittest.TestCase):
+    def test_custom_directory_loads_every_json_document(self):
+        def document(name: str, section_id: str) -> dict:
+            return {
+                "sections": [{
+                    "id": section_id,
+                    "title": name,
+                    "content": f"Small Humanoid AC 12 HP 5 (2d4) Speed 30 ft. CR 1",
+                    "tables": [{
+                        "headers": ["STR", "DEX", "CON", "INT", "WIS", "CHA"],
+                        "rows": [["10", "10", "10", "10", "10", "10"]],
+                    }],
+                }],
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            custom = root / "custom"
+            custom.mkdir()
+            (custom / "zeta.json").write_text(json.dumps(document("Zeta Scout", "zeta")), encoding="utf-8")
+            (custom / "alpha.json").write_text(json.dumps(document("Alpha Scout", "alpha")), encoding="utf-8")
+
+            repo = SRDRepository(root,custom)
+
+            self.assertEqual(repo.monster("Alpha Scout")["name"],"Alpha Scout")
+            self.assertEqual(repo.monster("Zeta Scout")["name"],"Zeta Scout")
+            self.assertEqual(
+                [path.name for path in repo.custom_monster_files], ["alpha.json", "zeta.json"]
+            )
+
+    def test_missing_srd_repository_explains_how_to_fix_the_path(self):
+        missing = Path(tempfile.gettempdir()) / "missing-monster-card-srd-repository"
+        with self.assertRaisesRegex(
+            SRDError,
+            r"(?s)SRD repository was not found.*--srd PATH.*--srd ../dnd-srd-json",
+        ):
+            SRDRepository(missing)
+
     def test_custom_monsters_a_z_document_is_added_to_repository(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

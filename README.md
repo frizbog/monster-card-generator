@@ -108,15 +108,18 @@ A current SRD 5.2.1 JSON repository is preferable. Keep its license/attribution 
 First verify that the adapter can see it:
 
 ```bash
-python cards.py inspect-srd --srd ../dnd-srd-json
+python cards.py inspect-srd
 ```
 
 You should see counts for monsters and spells.
 
+The default SRD location is `../dnd-srd-json`. If your clone is elsewhere, add
+`--srd /path/to/dnd-srd-json` to any SRD-based command.
+
 ## 6. Generate one monster
 
 ```bash
-python cards.py monster "Goblin Warrior" --srd ../dnd-srd-json
+python cards.py monster "Goblin Warrior"
 ```
 
 Or specify the output path:
@@ -150,17 +153,17 @@ Use a kit file instead when individual monsters need different override files.
 
 ### Custom monsters alongside the SRD
 
-Pass a custom document using the same structure as the SRD repository's
-`data/documents/monsters-a-z.json` file:
+Every `*.json` document in this project's `custom/` directory is loaded by
+default alongside the SRD. Each document must use the same structure as the SRD
+repository's `data/documents/monsters-a-z.json` file. See
+[`custom/README.md`](custom/README.md) for authoring instructions.
 
 ```bash
-python cards.py monster "Clockwork Goblin" \
-  --srd ../dnd-srd-json \
-  --custom-monsters custom/monsters-a-z.json \
-  --out output/clockwork-goblin.pdf
+python cards.py monster "Clockwork Goblin" --out output/clockwork-goblin.pdf
 ```
 
-The custom document is additive: ordinary names still resolve from `--srd`.
+To use a different file or directory, pass `--custom-monsters PATH`. The custom
+documents are additive: ordinary names still resolve from `--srd`.
 If a custom monster has the same name as an SRD monster, the custom definition
 takes precedence. The option also works with `kit` and `inspect-srd`.
 
@@ -224,7 +227,7 @@ A kit file is collection management, not monster data:
 Run:
 
 ```bash
-python cards.py kit kits/example-goblins.json --srd ../dnd-srd-json
+python cards.py kit kits/example-goblins.json
 ```
 
 If a kit names a monster that is not present in the SRD, the command prints a
