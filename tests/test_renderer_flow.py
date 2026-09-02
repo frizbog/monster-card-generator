@@ -13,7 +13,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 
 def _measurement_renderer() -> CardRenderer:
     renderer = CardRenderer.__new__(CardRenderer)
-    renderer.sizes = {"body": 8.5}
+    renderer.sizes = {"body": 8.5, "source_note": 4.7}
     renderer.fonts = {
         "regular": "Helvetica",
         "bold": "Helvetica-Bold",
@@ -24,6 +24,14 @@ def _measurement_renderer() -> CardRenderer:
     renderer.W = 4.0625 * 72
     renderer.H = 5.3125 * 72
     renderer.M = 18
+    renderer.layout = {
+        "back_frame_horizontal_inset_pt": 31,
+        "back_frame_vertical_inset_pt": 27,
+        "back_text_top_offset_pt": 58,
+        "back_text_bottom_padding_pt": 8,
+        "back_source_note_clearance_pt": 6,
+        "back_source_note_leading_pt": 5.5,
+    }
     renderer.sheet = SheetLayout(
         page_width=renderer.PAGE_W,
         page_height=renderer.PAGE_H,

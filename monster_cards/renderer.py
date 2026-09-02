@@ -257,19 +257,34 @@ class CardRenderer:
             y -= 23
         return y-7
 
+    def _back_frame_insets(self) -> tuple[float, float]:
+        """Return the configured horizontal and vertical inset of the back frame."""
+        return (
+            float(self.layout["back_frame_horizontal_inset_pt"]),
+            float(self.layout["back_frame_vertical_inset_pt"]),
+        )
+
+    def _back_text_width(self) -> float:
+        """Return usable width inside the back frame after its text padding."""
+        horizontal, _ = self._back_frame_insets()
+        return self.W - 2*horizontal - 22
+
     def _back_text_floor(self, card: MonsterCard) -> float:
-        bot = 27
+        _, bot = self._back_frame_insets()
+        bottom_padding = float(self.layout["back_text_bottom_padding_pt"])
         if not card.source_note:
-            return bot+8
-        lines = simpleSplit(card.source_note,self.fonts["regular"],4.7,(self.W-62)-20)
-        top_baseline = bot+8+5.5*(len(lines)-1)
-        return top_baseline+6
+            return bot+bottom_padding
+        note_size = self.sizes["source_note"]
+        note_leading = float(self.layout["back_source_note_leading_pt"])
+        lines = simpleSplit(card.source_note,self.fonts["regular"],note_size,self._back_text_width()+2)
+        top_baseline = bot+bottom_padding+note_leading*(len(lines)-1)
+        return top_baseline+float(self.layout["back_source_note_clearance_pt"])
 
     def _back_block_height(self, block: RuleBlock, size: float | None = None) -> float:
         size = float(self.sizes["body"] if size is None else size)
         leading = size*1.34
         if block.meta:
-            lines = simpleSplit(block.text,self.fonts["regular"],size,(self.W-62)-22)
+            lines = simpleSplit(block.text,self.fonts["regular"],size,self._back_text_width())
             return 27 + len(lines)*leading
         title_lines, _, lines, inline = self._back_inline_layout(block,size)
         if inline:
@@ -279,7 +294,7 @@ class CardRenderer:
     def _back_inline_layout(self, block: RuleBlock, size: float | None = None):
         """Wrap a back block, moving unusually long titles onto their own lines."""
         size = float(self.sizes["body"] if size is None else size)
-        width = (self.W-62)-22
+        width = self._back_text_width()
         titlew = stringWidth(block.title,self.fonts["bold"],size)+4
         if titlew > width-20:
             title_lines = simpleSplit(block.title,self.fonts["bold"],size,width)
@@ -305,7 +320,7 @@ class CardRenderer:
         return getattr(self,"_back_body_sizes",{}).get(id(card),float(self.sizes["body"]))
 
     def _back_fit(self, card: MonsterCard, size: float):
-        y = self.H-58
+        y = self.H-float(self.layout["back_text_top_offset_pt"])
         floor = self._back_text_floor(card)
         for block in card.overflow:
             next_y = y-self._back_block_height(block,size)
@@ -438,7 +453,9 @@ class CardRenderer:
         c = self.c; assert c
         body_size = self._back_size_for(card)
         body_leading = body_size*1.34
-        inset=31; top=self.H-27; bot=27; left=31; right=self.W-31
+        horizontal_inset, vertical_inset = self._back_frame_insets()
+        top=self.H-vertical_inset; bot=vertical_inset
+        left=horizontal_inset; right=self.W-horizontal_inset
         c.setStrokeColor(self.GRID); c.setLineWidth(.8); c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
         edge=f"{card.name.upper()} · CR {card.cr}"
         edge_inset = float(self.layout["edge_label_inset_pt"])
@@ -449,7 +466,7 @@ class CardRenderer:
         c.saveState(); c.translate(edge_inset,self.H/2); c.rotate(-90); c.drawCentredString(0,0,edge); c.restoreState()
         c.saveState(); c.translate(self.W-edge_inset,self.H/2); c.rotate(90); c.drawCentredString(0,0,edge); c.restoreState()
 
-        y=self.H-58
+        y=self.H-float(self.layout["back_text_top_offset_pt"])
         previous_baseline: float | None = None
         for block in card.overflow:
             first_baseline = y-8 if block.meta else y-4
@@ -484,8 +501,10 @@ class CardRenderer:
                 y=yy-1
             previous_baseline = last_baseline
         if card.source_note:
-            c.setFillColor(self.GRAY); c.setFont(self.fonts["regular"],4.7)
-            lines=simpleSplit(card.source_note,self.fonts["regular"],4.7,right-left-20)
-            yy=bot+8+5.5*(len(lines)-1)
+            note_size = self.sizes["source_note"]
+            note_leading = float(self.layout["back_source_note_leading_pt"])
+            c.setFillColor(self.GRAY); c.setFont(self.fonts["regular"],note_size)
+            lines=simpleSplit(card.source_note,self.fonts["regular"],note_size,self._back_text_width()+2)
+            yy=bot+float(self.layout["back_text_bottom_padding_pt"])+note_leading*(len(lines)-1)
             for ln in lines:
-                c.drawCentredString(self.W/2,yy,ln); yy-=5.5
+                c.drawCentredString(self.W/2,yy,ln); yy-=note_leading
