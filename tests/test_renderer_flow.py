@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import unittest
 
 from monster_cards.io import load_manual_cards
+from monster_cards.layout import SheetLayout
 from monster_cards.model import RuleBlock
 from monster_cards.renderer import CardRenderer
 from reportlab.pdfbase.pdfmetrics import stringWidth
@@ -23,6 +24,13 @@ def _measurement_renderer() -> CardRenderer:
     renderer.W = 4.0625 * 72
     renderer.H = 5.3125 * 72
     renderer.M = 18
+    renderer.sheet = SheetLayout(
+        page_width=renderer.PAGE_W,
+        page_height=renderer.PAGE_H,
+        card_width=renderer.W,
+        card_height=renderer.H,
+        artwork_inset=renderer.M,
+    )
     return renderer
 
 

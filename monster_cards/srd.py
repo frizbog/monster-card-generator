@@ -12,6 +12,81 @@ class SRDError(RuntimeError):
     pass
 
 
+class CustomMonsterDocuments:
+    """Discover and index monster-format documents outside the SRD repository.
+
+    A directory is intentionally recursive so users can organize documents as
+    `custom/monsters/...` today and add other categories later. This class only
+    understands monster documents; custom spells will need their own adapter.
+    """
+
+    def __init__(self, path: str | Path | None):
+        custom_path = Path(path).expanduser().resolve() if path else None
+        if custom_path and custom_path.is_dir():
+            self.files = sorted(custom_path.rglob("*.json"))
+            if not self.files:
+                raise SRDError(f"No custom monster JSON files found in directory: {custom_path}")
+        elif custom_path and custom_path.is_file():
+            self.files = [custom_path]
+        elif custom_path:
+            raise SRDError(f"Custom monster path does not exist: {custom_path}")
+        else:
+            self.files = []
+        self._index: dict[str, dict[str, Any]] | None = None
+
+    def index(self) -> dict[str, dict[str, Any]]:
+        """Read each file once and return monsters keyed by normalized name."""
+        if self._index is not None:
+            return self._index
+        found: dict[str, dict[str, Any]] = {}
+        for path in self.files:
+            for key, monster in self._index_file(path).items():
+                if key in found:
+                    raise SRDError(
+                        f"Duplicate custom monster name {monster['name']!r} in {path}; "
+                        "rename one of the custom monster entries."
+                    )
+                found[key] = monster
+        self._index = found
+        return found
+
+    @staticmethod
+    def _index_file(path: Path) -> dict[str, dict[str, Any]]:
+        """Extract monster sections and their immediate rules-section children."""
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SRDError(f"Cannot read custom monster file {path}: {exc}") from exc
+        sections = payload.get("sections") if isinstance(payload, dict) else None
+        if not isinstance(sections, list):
+            raise SRDError(
+                f"Custom monster file must use the monsters-a-z.json document format: {path}"
+            )
+
+        children: dict[str, list[dict[str, Any]]] = {}
+        for section in sections:
+            if isinstance(section, dict) and section.get("parentId"):
+                children.setdefault(str(section["parentId"]), []).append(section)
+
+        found: dict[str, dict[str, Any]] = {}
+        for section in sections:
+            if not isinstance(section, dict) or not SRDRepository._is_monster_section(section):
+                continue
+            monster = SRDRepository._monster_from_section(
+                section, children.get(str(section.get("id")), [])
+            )
+            key = slugify(str(monster["name"]))
+            if key in found:
+                raise SRDError(
+                    f"Duplicate custom monster name {monster['name']!r} in {path}; "
+                    "rename one of the custom monster entries."
+                )
+            found[key] = monster
+        if not found:
+            raise SRDError(f"No monster stat blocks found in custom monster file: {path}")
+        return found
+
+
 class SRDRepository:
     """Schema-tolerant reader for local SRD-as-JSON repositories.
 
@@ -32,22 +107,16 @@ class SRDRepository:
                 "Fix it by cloning/locating the SRD repository, then pass its directory with "
                 "--srd PATH (for example: --srd ../dnd-srd-json)."
             )
-        custom_path = Path(custom_monsters).expanduser().resolve() if custom_monsters else None
-        if custom_path and custom_path.is_dir():
-            self.custom_monster_files = sorted(custom_path.rglob("*.json"))
-            if not self.custom_monster_files:
-                raise SRDError(f"No custom monster JSON files found in directory: {custom_path}")
-        elif custom_path and custom_path.is_file():
-            self.custom_monster_files = [custom_path]
-        elif custom_path:
-            raise SRDError(f"Custom monster path does not exist: {custom_path}")
-        else:
-            self.custom_monster_files = []
+        self.custom_documents = CustomMonsterDocuments(custom_monsters)
         self._monster_index: dict[str, dict[str, Any]] | None = None
         self._spell_index: dict[str, dict[str, Any]] | None = None
-        self._custom_monster_index: dict[str, dict[str, Any]] | None = None
+
+    @property
+    def custom_monster_files(self) -> list[Path]:
+        return self.custom_documents.files
 
     def describe(self) -> dict[str, Any]:
+        """Provide human-readable source counts for the `inspect-srd` command."""
         monsters = self._monsters()
         spells = self._load_collection("spells")
         description = {
@@ -55,7 +124,7 @@ class SRDRepository:
             "monsters": len(monsters),
             "spells": len(spells),
         }
-        if self.custom_monster_files:
+        if self.custom_documents.files:
             description["custom_monster_files"] = [str(path) for path in self.custom_monster_files]
             description["custom_monsters"] = len(self._custom_monsters())
         return description
@@ -75,61 +144,20 @@ class SRDRepository:
         raise SRDError(f"Monster not found: {name}.{hint}")
 
     def _monsters(self) -> dict[str, dict[str, Any]]:
+        """Build the combined index; custom records deliberately override SRD records."""
         if self._monster_index is None:
             self._monster_index = self._load_collection("monsters")
-            if self.custom_monster_files:
+            if self.custom_documents.files:
                 self._monster_index.update(self._custom_monsters())
         return self._monster_index
 
     def _custom_monsters(self) -> dict[str, dict[str, Any]]:
-        if self._custom_monster_index is not None:
-            return self._custom_monster_index
-        found: dict[str, dict[str, Any]] = {}
-        for path in self.custom_monster_files:
-            for key, monster in self._custom_monsters_from_file(path).items():
-                if key in found:
-                    raise SRDError(
-                        f"Duplicate custom monster name {monster['name']!r} in {path}; "
-                        "rename one of the custom monster entries."
-                    )
-                found[key] = monster
-        self._custom_monster_index = found
-        return found
-
-    def _custom_monsters_from_file(self, path: Path) -> dict[str, dict[str, Any]]:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise SRDError(f"Cannot read custom monster file {path}: {exc}") from exc
-        sections = payload.get("sections") if isinstance(payload, dict) else None
-        if not isinstance(sections, list):
-            raise SRDError(
-                f"Custom monster file must use the monsters-a-z.json document format: {path}"
-            )
-
-        children: dict[str, list[dict[str, Any]]] = {}
-        for section in sections:
-            if isinstance(section, dict) and section.get("parentId"):
-                children.setdefault(str(section["parentId"]), []).append(section)
-
-        found: dict[str, dict[str, Any]] = {}
-        for section in sections:
-            if not isinstance(section, dict) or not self._is_monster_section(section):
-                continue
-            monster = self._monster_from_section(section,children.get(str(section.get("id")),[]))
-            key = slugify(str(monster["name"]))
-            if key in found:
-                raise SRDError(
-                    f"Duplicate custom monster name {monster['name']!r} in {path}; "
-                    "rename one of the custom monster entries."
-                )
-            found[key] = monster
-        if not found:
-            raise SRDError(f"No monster stat blocks found in custom monster file: {path}")
-        return found
+        """Keep custom-document mechanics behind the repository's existing interface."""
+        return self.custom_documents.index()
 
     @staticmethod
     def _is_monster_section(section: dict[str, Any]) -> bool:
+        """Recognize a monster stat block without relying on a document-specific ID."""
         content = str(section.get("content") or section.get("text") or "")
         tables = section.get("tables")
         ability_table = isinstance(tables,list) and any(
@@ -151,6 +179,9 @@ class SRDRepository:
     def _monster_from_section(
         section: dict[str, Any], child_sections: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        """Convert a flexible document section into the schema used by normalize.py."""
+        # Different SRD exports use different field names, so missing values are
+        # left absent here and the normalizer can issue its focused schema error.
         content = str(section.get("content") or section.get("text") or "")
         monster = dict(section)
         monster["name"] = str(section["title"])

@@ -11,21 +11,29 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from .fonts import register_noto
+from .layout import PT_PER_IN, SheetLayout
 from .model import ABILITIES, MonsterCard, RuleBlock
 from .util import signed
 
-PT_PER_IN = 72.0
-
 
 class CardRenderer:
+    """Render measured monster cards onto foldable, physical PDF sheets.
+
+    Coordinates use ReportLab points with (0, 0) at the lower-left of the
+    current card panel. `render()` translates that local drawing twice per card
+    spread, so front/back drawing stays independent of sheet placement.
+    """
+
     def __init__(self, style_path: str | Path):
+        # JSON is the authority for printable dimensions, colors, and type sizes.
         self.style = json.loads(Path(style_path).read_text(encoding="utf-8"))
         self.fonts = register_noto()
-        self.PAGE_W = self.style["page_width_in"] * PT_PER_IN
-        self.PAGE_H = self.style["page_height_in"] * PT_PER_IN
-        self.W = self.style["card_width_in"] * PT_PER_IN
-        self.H = self.style["card_height_in"] * PT_PER_IN
-        self.M = float(self.style["margin_pt"])
+        self.sheet = SheetLayout.from_style(self.style)
+        self.PAGE_W = self.sheet.page_width
+        self.PAGE_H = self.sheet.page_height
+        self.W = self.sheet.card_width
+        self.H = self.sheet.card_height
+        self.M = self.sheet.artwork_inset
         self.layout = self.style["layout"]
         colors = self.style["colors"]
         self.TEAL = HexColor(colors["teal"])
@@ -41,13 +49,18 @@ class CardRenderer:
         self._fact_flow_prepared: set[int] = set()
 
     def render(self, cards: Iterable[MonsterCard], output: str | Path) -> Path:
+        """Measure all text, then place up to two complete spreads on each sheet."""
         cards = list(cards)
+        # Text flow mutates a card into front blocks and back overflow before any
+        # ink is drawn. That avoids silent clipping caused by draw-as-you-go code.
         for card in cards:
             self._prepare_block_flow(card)
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
         self.c = canvas.Canvas(str(output), pagesize=(self.PAGE_W, self.PAGE_H))
         self.c.setTitle("Monster Cards")
+        # First card goes at the top, second at the bottom. An odd final card
+        # deliberately leaves the bottom slot blank for the physical workflow.
         for index in range(0,len(cards),2):
             self._draw_spread(cards[index],top=True)
             if index+1 < len(cards):
@@ -60,9 +73,10 @@ class CardRenderer:
         return output
 
     def _spread_origin(self, top: bool) -> tuple[float,float]:
-        return (0.0,self.PAGE_H-self.H) if top else (0.0,0.0)
+        return self.sheet.spread_origin(top)
 
     def _draw_spread(self, card: MonsterCard, top: bool) -> None:
+        """Draw a front/back pair that shares its long-edge fold at `self.W`."""
         c = self.c; assert c
         x,y = self._spread_origin(top)
         c.saveState(); c.translate(x,y); self._draw_front(card); c.restoreState()
@@ -70,21 +84,13 @@ class CardRenderer:
 
     def _trim_guide_segments(self) -> list[tuple[float,float,float,float]]:
         """Solid guides for the two physical cuts made after folding the sheet."""
-        spread_right = 2*self.W
-        return [
-            (spread_right,0.0,spread_right,self.PAGE_H),
-            (0.0,self.H,self.PAGE_W,self.H),
-            (0.0,self.PAGE_H-self.H,self.PAGE_W,self.PAGE_H-self.H),
-        ]
+        return self.sheet.trim_guide_segments()
 
     def _discard_regions(self) -> list[tuple[float,float,float,float]]:
-        spread_right = 2*self.W
-        return [
-            (spread_right,0.0,self.PAGE_W-spread_right,self.PAGE_H),
-            (0.0,self.H,spread_right,self.PAGE_H-2*self.H),
-        ]
+        return self.sheet.discard_regions()
 
     def _crosshatch_rect(self, x: float, y: float, width: float, height: float) -> None:
+        """Clip a light X-hatch to a discard region without touching card artwork."""
         c = self.c; assert c
         spacing = float(self.layout["discard_hatch_spacing_pt"])
         c.saveState()
@@ -102,6 +108,7 @@ class CardRenderer:
         c.restoreState()
 
     def _draw_discard_hatching(self) -> None:
+        # Hatching is drawn before the darker cut guides, preserving their meaning.
         for region in self._discard_regions():
             self._crosshatch_rect(*region)
 
@@ -185,8 +192,8 @@ class CardRenderer:
         xs = [self.M+dashboard_inset+i*dashboard_span/3 for i in range(4)]
         self._shield_ac(xs[0],top,card.ac); self._box_hp(xs[1],top,card.hp); self._arrow_speed(xs[2],top,card.speed); self._circle_pp(xs[3],top,card.passive_perception)
 
-        # v0.3: no MODIFIERS / Raw Scores labels. Modifiers are deliberately large;
-        # raw scores are supporting information beneath them.
+        # Modifiers are deliberately large; raw scores are supporting information
+        # beneath them. There are intentionally no "MODIFIERS" / "Raw Scores" labels.
         y1 = self.H-self.M-116
         ability_inset = 24
         ability_span = self.W-2*self.M-2*ability_inset
@@ -209,6 +216,7 @@ class CardRenderer:
         return y-h
 
     def _block_layout(self, block: RuleBlock):
+        """Wrap a front rule block, reserving first-line space for its bold title."""
         size = self.sizes["body"]
         x = self.M+7; right = self.W-self.M-7
         titlew = stringWidth(block.title,self.fonts["bold"],size)+4
@@ -269,6 +277,7 @@ class CardRenderer:
         return 5 + (len(title_lines)+len(lines))*leading
 
     def _back_inline_layout(self, block: RuleBlock, size: float | None = None):
+        """Wrap a back block, moving unusually long titles onto their own lines."""
         size = float(self.sizes["body"] if size is None else size)
         width = (self.W-62)-22
         titlew = stringWidth(block.title,self.fonts["bold"],size)+4
@@ -317,6 +326,7 @@ class CardRenderer:
         return RuleBlock("Special Fact:",fact)
 
     def _prepare_fact_flow(self, card: MonsterCard) -> None:
+        """Promote overflowing quick facts into normal, labeled front rule blocks."""
         prepared = getattr(self,"_fact_flow_prepared",None)
         if prepared is None:
             self._fact_flow_prepared = set()
@@ -371,7 +381,7 @@ class CardRenderer:
         return None
 
     def _prepare_block_flow(self, card: MonsterCard):
-        """Measure blocks before drawing and move front overflow to the back."""
+        """Measure before drawing; split/move front overflow and fit the back safely."""
         self._prepare_fact_flow(card)
         y = self._front_block_top(card)
         front: list[RuleBlock] = []
@@ -394,6 +404,8 @@ class CardRenderer:
         card.blocks = front
         card.overflow = carried+card.overflow
 
+        # The back uses the front body size first, then only whole one-point
+        # reductions. This preserves readability and makes a size change predictable.
         size = float(self.sizes["body"])
         while size >= .5:
             fits,block,excess = self._back_fit(card,size)

@@ -17,8 +17,40 @@ DEFAULT_STYLE = ROOT / "config" / "card_style.json"
 DEFAULT_SRD = "../dnd-srd-json"
 DEFAULT_CUSTOM_MONSTERS = ROOT / "custom"
 
+SOURCE_OPTIONS_HELP = (
+    "Custom monster JSON file or directory (default: project's custom/ directory; "
+    "all nested *.json files are loaded)."
+)
+
+
+def add_source_options(command: argparse.ArgumentParser) -> None:
+    """Add the common local-SRD and custom-document options to a command."""
+    command.add_argument(
+        "--srd", default=DEFAULT_SRD, metavar="SRD_REPO",
+        help="Path to the SRD repository directory (default: %(default)s).",
+    )
+    command.add_argument(
+        "--custom-monsters", default=str(DEFAULT_CUSTOM_MONSTERS), metavar="CUSTOM_PATH",
+        help=SOURCE_OPTIONS_HELP,
+    )
+
+
+def repository_from_args(args: argparse.Namespace) -> SRDRepository:
+    """Build the shared data source used by the inspect, monster, and kit commands."""
+    return SRDRepository(args.srd, args.custom_monsters)
+
+
+def normalized_cards(repo: SRDRepository, names: list[str], override: str | None = None):
+    """Turn SRD/custom records into renderable cards, applying one optional edit file."""
+    return [
+        apply_override(monster_to_card(repo.monster(name)), load_override(override))
+        for name in names
+    ]
+
 
 def main() -> int:
+    # This text is repeated in subcommand help so a missing SRD is easy to fix
+    # without consulting the README.
     location_help = """location examples:
   --srd /path/to/dnd-srd-json
   --custom-monsters /path/to/custom-folder
@@ -39,6 +71,8 @@ different JSON file or directory.
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    # Commands only define input/output choices here. The dispatch below does
+    # the work, which keeps `--help` quick and side-effect free.
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_sample = sub.add_parser("sample", help="Render the bundled two-card smoke test; no SRD repo required.")
@@ -49,16 +83,14 @@ different JSON file or directory.
         "inspect-srd", help="Show whether the local SRD repository can be read.",
         epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_inspect.add_argument("--srd", default=DEFAULT_SRD, metavar="SRD_REPO", help="Path to the SRD repository directory (default: %(default)s).")
-    p_inspect.add_argument("--custom-monsters", default=str(DEFAULT_CUSTOM_MONSTERS), metavar="CUSTOM_PATH", help="Custom monster JSON file or directory (default: project's custom/ directory; all nested *.json files are loaded).")
+    add_source_options(p_inspect)
 
     p_monster = sub.add_parser(
         "monster", help="Render one or more monsters from the local SRD repository.",
         epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_monster.add_argument("name", nargs="+", help="One or more monster names (quote names containing spaces).")
-    p_monster.add_argument("--srd", default=DEFAULT_SRD, metavar="SRD_REPO", help="Path to the SRD repository directory (default: %(default)s).")
-    p_monster.add_argument("--custom-monsters", default=str(DEFAULT_CUSTOM_MONSTERS), metavar="CUSTOM_PATH", help="Custom monster JSON file or directory (default: project's custom/ directory; all nested *.json files are loaded).")
+    add_source_options(p_monster)
     p_monster.add_argument("--override", help="Optional JSON editorial override for display/card text.")
     p_monster.add_argument("--out")
     p_monster.add_argument("--style", default=str(DEFAULT_STYLE))
@@ -69,13 +101,14 @@ different JSON file or directory.
         epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_kit.add_argument("kit_file")
-    p_kit.add_argument("--srd", default=DEFAULT_SRD, metavar="SRD_REPO", help="Path to the SRD repository directory (default: %(default)s).")
-    p_kit.add_argument("--custom-monsters", default=str(DEFAULT_CUSTOM_MONSTERS), metavar="CUSTOM_PATH", help="Custom monster JSON file or directory (default: project's custom/ directory; all nested *.json files are loaded).")
+    add_source_options(p_kit)
     p_kit.add_argument("--out")
     p_kit.add_argument("--style", default=str(DEFAULT_STYLE))
 
     args = parser.parse_args()
     try:
+        # `sample` is intentionally self-contained; every other command starts
+        # from the local SRD plus the project's custom-document directory.
         if args.command == "sample":
             cards = load_manual_cards(ROOT / "examples" / "manual_monsters.json")
             path = CardRenderer(args.style).render(cards, args.out)
@@ -83,17 +116,14 @@ different JSON file or directory.
             return 0
 
         if args.command == "inspect-srd":
-            print(json.dumps(SRDRepository(args.srd,args.custom_monsters).describe(), indent=2))
+            print(json.dumps(repository_from_args(args).describe(), indent=2))
             return 0
 
         if args.command == "monster":
-            repo = SRDRepository(args.srd,args.custom_monsters)
+            repo = repository_from_args(args)
             if args.override and len(args.name) > 1:
                 raise RuntimeError("--override can only be used when rendering one monster; use a kit for per-monster overrides")
-            cards = []
-            for name in args.name:
-                card = monster_to_card(repo.monster(name))
-                cards.append(apply_override(card, load_override(args.override)))
+            cards = normalized_cards(repo, args.name, args.override)
             if args.dump_normalized:
                 payload = cards[0].to_dict() if len(cards) == 1 else [card.to_dict() for card in cards]
                 print(json.dumps(payload, indent=2))
@@ -109,7 +139,7 @@ different JSON file or directory.
             return 0
 
         if args.command == "kit":
-            repo = SRDRepository(args.srd,args.custom_monsters)
+            repo = repository_from_args(args)
             kit_path = Path(args.kit_file)
             data = json.loads(kit_path.read_text(encoding="utf-8"))
             cards = []
