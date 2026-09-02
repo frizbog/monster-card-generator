@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 output/*.pdf
 .DS_Store
+custom/
+
+kits/*.json
+!kits/example-goblins.json

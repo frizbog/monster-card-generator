@@ -8,6 +8,47 @@ from monster_cards.srd import SRDRepository
 
 
 class ExtractedSRDTests(unittest.TestCase):
+    def test_custom_monsters_a_z_document_is_added_to_repository(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.mkdir(exist_ok=True)
+            ability_rows = [["12 (+1)","14 (+2)","13 (+1)","8 (−1)","10 (+0)","6 (−2)"]]
+            stat_section = {
+                "id": "custom-clockwork-goblin",
+                "documentId": "monsters-a-z",
+                "title": "Clockwork Goblin",
+                "parentId": "monsters-a-z",
+                "content": (
+                    "Small Construct, Unaligned Armor Class 16 Initiative +2 (12) Hit Points 18 (4d6 + 4) "
+                    "Speed 30 ft., Climb 20 ft. Skills Stealth +4 Senses Darkvision 60 ft.; "
+                    "Passive Perception 10 Languages Common Challenge 1 (XP 200; PB +2)"
+                ),
+                "tables": [{"headers": ["STR","DEX","CON","INT","WIS","CHA"],"rows": ability_rows}],
+            }
+            action_section = {
+                "id": "custom-clockwork-goblin-actions",
+                "documentId": "monsters-a-z",
+                "title": "Actions",
+                "parentId": "custom-clockwork-goblin",
+                "content": "Gear Blade. Melee Attack Roll: +4, reach 5 ft. Hit: 6 Slashing damage.",
+                "tables": [],
+            }
+            custom_file = root / "monsters-a-z.json"
+            custom_file.write_text(json.dumps({"sections": [stat_section,action_section]}),encoding="utf-8")
+
+            repo = SRDRepository(root,custom_file)
+            card = monster_to_card(repo.monster("Clockwork Goblin"))
+
+            self.assertEqual(card.name,"Clockwork Goblin")
+            self.assertEqual(card.subtitle,"Small Construct, Unaligned")
+            self.assertEqual(card.ac,"16")
+            self.assertEqual(card.hp,"18")
+            self.assertEqual(card.speed,"30'")
+            self.assertEqual(card.abilities["STR"].score,12)
+            self.assertIn("Climb 20'",card.quick_facts)
+            self.assertEqual(card.blocks[0].title,"Gear Blade:")
+            self.assertEqual(card.source_note,"Generated from custom monster JSON.")
+
     def test_extracted_resource_is_hydrated_and_normalized(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

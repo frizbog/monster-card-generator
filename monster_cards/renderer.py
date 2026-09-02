@@ -34,6 +34,7 @@ class CardRenderer:
         self.sizes = self.style["sizes"]
         self.c: canvas.Canvas | None = None
         self._back_body_sizes: dict[int, float] = {}
+        self._fact_flow_prepared: set[int] = set()
 
     def render(self, cards: Iterable[MonsterCard], output: str | Path) -> Path:
         cards = list(cards)
@@ -240,6 +241,39 @@ class CardRenderer:
         return True,None,0.0
 
     @staticmethod
+    def _fact_rule_block(fact: str) -> RuleBlock:
+        if fact.startswith("Languages: "):
+            return RuleBlock("Languages:",fact.removeprefix("Languages: "))
+        if fact.startswith("Vuln. "):
+            return RuleBlock("Vuln.:",fact.removeprefix("Vuln. "))
+        if ": " in fact:
+            title,text = fact.split(": ",1)
+            return RuleBlock(f"{title}:",text)
+        return RuleBlock("Special Fact:",fact)
+
+    def _prepare_fact_flow(self, card: MonsterCard) -> None:
+        prepared = getattr(self,"_fact_flow_prepared",None)
+        if prepared is None:
+            self._fact_flow_prepared = set()
+            prepared = self._fact_flow_prepared
+        if id(card) in prepared:
+            return
+
+        facts = list(card.quick_facts)
+        moved: list[str] = []
+        max_width = self.W-2*self.M-10
+        minimum_size = 5.8
+        while facts:
+            text = " · ".join(facts)
+            if stringWidth(text,self.fonts["black"],minimum_size) <= max_width:
+                break
+            moved.insert(0,facts.pop())
+        card.quick_facts = facts
+        if moved:
+            card.blocks = [self._fact_rule_block(fact) for fact in moved]+card.blocks
+        prepared.add(id(card))
+
+    @staticmethod
     def _continuation_title(title: str) -> str:
         base = title.rstrip(":")
         if base.endswith(" (cont.)"):
@@ -273,6 +307,7 @@ class CardRenderer:
 
     def _prepare_block_flow(self, card: MonsterCard):
         """Measure blocks before drawing and move front overflow to the back."""
+        self._prepare_fact_flow(card)
         y = self._front_block_top(card)
         front: list[RuleBlock] = []
         carried: list[RuleBlock] = []

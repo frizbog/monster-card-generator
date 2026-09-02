@@ -17,27 +17,56 @@ DEFAULT_STYLE = ROOT / "config" / "card_style.json"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate fast-play D&D monster cards as PDFs.")
+    location_help = """location examples:
+  --srd ../dnd-srd-json
+  --custom-monsters custom/monsters-a-z.json
+
+The SRD argument is the repository directory. The custom argument is optional
+and accepts either a monsters-a-z.json file or a directory containing that file.
+"""
+    parser = argparse.ArgumentParser(
+        description="Generate fast-play D&D monster cards as PDFs.",
+        epilog="""examples:
+  cards.py monster "Goblin Warrior" --srd ../dnd-srd-json
+  cards.py monster "Clockwork Goblin" --srd ../dnd-srd-json \\
+    --custom-monsters custom/monsters-a-z.json
+  cards.py kit kits/goblins.json --srd ../dnd-srd-json \\
+    --custom-monsters custom/monsters-a-z.json
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_sample = sub.add_parser("sample", help="Render the bundled two-card smoke test; no SRD repo required.")
     p_sample.add_argument("--out", default=str(ROOT / "output" / "sample-cards.pdf"))
     p_sample.add_argument("--style", default=str(DEFAULT_STYLE))
 
-    p_inspect = sub.add_parser("inspect-srd", help="Show whether the local SRD repository can be read.")
-    p_inspect.add_argument("--srd", required=True)
+    p_inspect = sub.add_parser(
+        "inspect-srd", help="Show whether the local SRD repository can be read.",
+        epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_inspect.add_argument("--srd", required=True, metavar="SRD_REPO", help="Path to the SRD repository directory (for example, ../dnd-srd-json).")
+    p_inspect.add_argument("--custom-monsters", metavar="MONSTERS_A_Z", help="Optional path to a custom monsters-a-z.json file or its containing directory.")
 
-    p_monster = sub.add_parser("monster", help="Render one or more monsters from the local SRD repository.")
+    p_monster = sub.add_parser(
+        "monster", help="Render one or more monsters from the local SRD repository.",
+        epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_monster.add_argument("name", nargs="+", help="One or more monster names (quote names containing spaces).")
-    p_monster.add_argument("--srd", required=True)
+    p_monster.add_argument("--srd", required=True, metavar="SRD_REPO", help="Path to the SRD repository directory (for example, ../dnd-srd-json).")
+    p_monster.add_argument("--custom-monsters", metavar="MONSTERS_A_Z", help="Optional path to a custom monsters-a-z.json file or its containing directory.")
     p_monster.add_argument("--override", help="Optional JSON editorial override for display/card text.")
     p_monster.add_argument("--out")
     p_monster.add_argument("--style", default=str(DEFAULT_STYLE))
     p_monster.add_argument("--dump-normalized", action="store_true", help="Print normalized card JSON and exit.")
 
-    p_kit = sub.add_parser("kit", help="Render every monster listed in a kit JSON file.")
+    p_kit = sub.add_parser(
+        "kit", help="Render every monster listed in a kit JSON file.",
+        epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_kit.add_argument("kit_file")
-    p_kit.add_argument("--srd", required=True)
+    p_kit.add_argument("--srd", required=True, metavar="SRD_REPO", help="Path to the SRD repository directory (for example, ../dnd-srd-json).")
+    p_kit.add_argument("--custom-monsters", metavar="MONSTERS_A_Z", help="Optional path to a custom monsters-a-z.json file or its containing directory.")
     p_kit.add_argument("--out")
     p_kit.add_argument("--style", default=str(DEFAULT_STYLE))
 
@@ -50,11 +79,11 @@ def main() -> int:
             return 0
 
         if args.command == "inspect-srd":
-            print(json.dumps(SRDRepository(args.srd).describe(), indent=2))
+            print(json.dumps(SRDRepository(args.srd,args.custom_monsters).describe(), indent=2))
             return 0
 
         if args.command == "monster":
-            repo = SRDRepository(args.srd)
+            repo = SRDRepository(args.srd,args.custom_monsters)
             if args.override and len(args.name) > 1:
                 raise RuntimeError("--override can only be used when rendering one monster; use a kit for per-monster overrides")
             cards = []
@@ -76,7 +105,7 @@ def main() -> int:
             return 0
 
         if args.command == "kit":
-            repo = SRDRepository(args.srd)
+            repo = SRDRepository(args.srd,args.custom_monsters)
             kit_path = Path(args.kit_file)
             data = json.loads(kit_path.read_text(encoding="utf-8"))
             cards = []

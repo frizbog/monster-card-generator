@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from .util import slugify, walk_json_files
@@ -23,36 +24,145 @@ class SRDRepository:
     repository's exact schema.
     """
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, custom_monsters: str | Path | None = None):
         self.root = Path(root).expanduser().resolve()
         if not self.root.exists():
             raise SRDError(f"SRD path does not exist: {self.root}")
+        self.custom_monsters = Path(custom_monsters).expanduser().resolve() if custom_monsters else None
+        if self.custom_monsters and self.custom_monsters.is_dir():
+            self.custom_monsters = self.custom_monsters / "monsters-a-z.json"
+        if self.custom_monsters and not self.custom_monsters.is_file():
+            raise SRDError(f"Custom monster file does not exist: {self.custom_monsters}")
         self._monster_index: dict[str, dict[str, Any]] | None = None
         self._spell_index: dict[str, dict[str, Any]] | None = None
+        self._custom_monster_index: dict[str, dict[str, Any]] | None = None
 
     def describe(self) -> dict[str, Any]:
-        monsters = self._load_collection("monsters")
+        monsters = self._monsters()
         spells = self._load_collection("spells")
-        return {
+        description = {
             "root": str(self.root),
             "monsters": len(monsters),
             "spells": len(spells),
         }
+        if self.custom_monsters:
+            description["custom_monster_file"] = str(self.custom_monsters)
+            description["custom_monsters"] = len(self._custom_monsters())
+        return description
 
     def monster(self, name: str) -> dict[str, Any]:
-        if self._monster_index is None:
-            self._monster_index = self._load_collection("monsters")
+        monster_index = self._monsters()
         key = slugify(name)
-        if key in self._monster_index:
-            return self._monster_index[key]
+        if key in monster_index:
+            return monster_index[key]
         # Friendly fallback: exact case-insensitive name.
-        for obj in self._monster_index.values():
+        for obj in monster_index.values():
             if str(obj.get("name", "")).casefold() == name.casefold():
                 return obj
-        available = sorted(str(x.get("name")) for x in self._monster_index.values() if x.get("name"))
+        available = sorted(str(x.get("name")) for x in monster_index.values() if x.get("name"))
         near = [x for x in available if name.casefold() in x.casefold() or x.casefold() in name.casefold()][:10]
         hint = f" Near matches: {', '.join(near)}" if near else ""
         raise SRDError(f"Monster not found: {name}.{hint}")
+
+    def _monsters(self) -> dict[str, dict[str, Any]]:
+        if self._monster_index is None:
+            self._monster_index = self._load_collection("monsters")
+            if self.custom_monsters:
+                self._monster_index.update(self._custom_monsters())
+        return self._monster_index
+
+    def _custom_monsters(self) -> dict[str, dict[str, Any]]:
+        if self._custom_monster_index is not None:
+            return self._custom_monster_index
+        assert self.custom_monsters
+        try:
+            payload = json.loads(self.custom_monsters.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SRDError(f"Cannot read custom monster file {self.custom_monsters}: {exc}") from exc
+        sections = payload.get("sections") if isinstance(payload, dict) else None
+        if not isinstance(sections, list):
+            raise SRDError(
+                f"Custom monster file must use the monsters-a-z.json document format: {self.custom_monsters}"
+            )
+
+        children: dict[str, list[dict[str, Any]]] = {}
+        for section in sections:
+            if isinstance(section, dict) and section.get("parentId"):
+                children.setdefault(str(section["parentId"]), []).append(section)
+
+        found: dict[str, dict[str, Any]] = {}
+        for section in sections:
+            if not isinstance(section, dict) or not self._is_monster_section(section):
+                continue
+            monster = self._monster_from_section(section,children.get(str(section.get("id")),[]))
+            found[slugify(str(monster["name"]))] = monster
+        if not found:
+            raise SRDError(f"No monster stat blocks found in custom monster file: {self.custom_monsters}")
+        self._custom_monster_index = found
+        return found
+
+    @staticmethod
+    def _is_monster_section(section: dict[str, Any]) -> bool:
+        content = str(section.get("content") or section.get("text") or "")
+        tables = section.get("tables")
+        ability_table = isinstance(tables,list) and any(
+            isinstance(table,dict)
+            and (
+                "STR" in [str(header).upper() for header in table.get("headers",[])]
+                or any("STR" in [str(cell).upper() for cell in row] for row in table.get("rows",[]) if isinstance(row,list))
+            )
+            for table in tables
+        )
+        return bool(
+            section.get("title") and ability_table
+            and re.search(r"\b(?:AC|Armor Class)\s+\d+",content,re.I)
+            and re.search(r"\b(?:HP|Hit Points)\s+\d+",content,re.I)
+            and re.search(r"\b(?:CR|Challenge)\s+\S+",content,re.I)
+        )
+
+    @staticmethod
+    def _monster_from_section(
+        section: dict[str, Any], child_sections: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        content = str(section.get("content") or section.get("text") or "")
+        monster = dict(section)
+        monster["name"] = str(section["title"])
+        monster["_custom_monster"] = True
+
+        type_match = re.match(r"(.+?)\s+(?:AC|Armor Class)\s+\d+",content,re.I)
+        ac_match = re.search(r"\b(?:AC|Armor Class)\s+(\d+)",content,re.I)
+        hp_match = re.search(r"\b(?:HP|Hit Points)\s+(\d+)",content,re.I)
+        speed_match = re.search(
+            r"\bSpeed\s+(.+?)(?=\s+(?:Saving Throws|Saves|Skills|Damage Vulnerabilities|"
+            r"Damage Resistances|Damage Immunities|Condition Immunities|Gear|Senses|Languages|CR)\b)",
+            content,
+        )
+        challenge_match = re.search(r"\b(?:CR|Challenge)\s+(.+?)(?=\s+(?:Traits|Actions|Bonus Actions|Reactions|Legendary Actions)\b|$)",content,re.I)
+        if type_match:
+            monster["type_line"] = type_match.group(1).strip()
+        if ac_match:
+            monster["armor_class"] = int(ac_match.group(1))
+        if hp_match:
+            monster["hit_points"] = int(hp_match.group(1))
+        if speed_match:
+            monster["speed"] = speed_match.group(1).strip()
+        if challenge_match:
+            monster["challenge"] = challenge_match.group(1).strip()
+
+        key_for_title = {
+            "traits": "special_abilities",
+            "actions": "actions",
+            "bonus actions": "bonus_actions",
+            "reactions": "reactions",
+            "legendary actions": "legendary_actions",
+        }
+        for child in child_sections:
+            title = str(child.get("title") or "").strip()
+            key = key_for_title.get(title.casefold())
+            text = child.get("content") or child.get("text")
+            if key and text:
+                monster.setdefault(key,[]).append({"name": title,"text": str(text)})
+        return monster
 
     def spell(self, name: str) -> dict[str, Any]:
         if self._spell_index is None:

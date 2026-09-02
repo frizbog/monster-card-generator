@@ -145,6 +145,22 @@ python cards.py monster "Goblin Warrior" "Goblin Boss" "Worg" \
 Without `--out`, a multi-monster command writes to `output/monster-cards.pdf`.
 Use a kit file instead when individual monsters need different override files.
 
+### Custom monsters alongside the SRD
+
+Pass a custom document using the same structure as the SRD repository's
+`data/documents/monsters-a-z.json` file:
+
+```bash
+python cards.py monster "Clockwork Goblin" \
+  --srd ../dnd-srd-json \
+  --custom-monsters custom/monsters-a-z.json \
+  --out output/clockwork-goblin.pdf
+```
+
+The custom document is additive: ordinary names still resolve from `--srd`.
+If a custom monster has the same name as an SRD monster, the custom definition
+takes precedence. The option also works with `kit` and `inspect-srd`.
+
 ## 7. Editorial overrides
 
 Automatic normalization is intentionally not the final word. Dense monsters, casters, or creatures with awkward source text should get small override files.

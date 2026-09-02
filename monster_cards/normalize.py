@@ -40,6 +40,14 @@ def _adapt_extracted_srd(monster: dict[str, Any]) -> dict[str, Any]:
         for table in monster.get("tables", []):
             if not isinstance(table, dict):
                 continue
+            headers = [str(header).upper() for header in table.get("headers", [])]
+            rows = table.get("rows", [])
+            if isinstance(rows, list) and rows and isinstance(rows[0], list):
+                for index, abbr in enumerate(headers):
+                    if abbr in ABILITY_KEYS and index < len(rows[0]):
+                        score_match = re.match(r"\s*(\d+)", str(rows[0][index]))
+                        if score_match:
+                            result[ABILITY_KEYS[abbr][0]] = int(score_match.group(1))
             for row in table.get("rows", []):
                 if not isinstance(row, list):
                     continue
@@ -68,7 +76,7 @@ def _adapt_extracted_srd(monster: dict[str, Any]) -> dict[str, Any]:
             "Saving Throws", "Saves", "Skills", "Damage Vulnerabilities",
             "Damage Resistances", "Damage Immunities", "Condition Immunities",
             "Gear", "Senses", "Languages", "CR", "Traits", "Actions",
-            "Bonus Actions", "Reactions", "Legendary Actions",
+            "Challenge", "Bonus Actions", "Reactions", "Legendary Actions",
         )
         label_pattern = "|".join(re.escape(label) for label in labels)
         field_keys = {
@@ -288,7 +296,11 @@ def monster_to_card(monster: dict[str, Any]) -> MonsterCard:
         abilities=abilities,
         quick_facts=choose_quick_facts(monster),
         blocks=_blocks(monster),
-        source_note="Generated from local D&D SRD JSON. SRD 5.2.1 content is CC BY 4.0, Wizards of the Coast LLC.",
+        source_note=(
+            "Generated from custom monster JSON."
+            if monster.get("_custom_monster")
+            else "Generated from local D&D SRD JSON. SRD 5.2.1 content is CC BY 4.0, Wizards of the Coast LLC."
+        ),
     )
     missing = [
         label for label, value in (

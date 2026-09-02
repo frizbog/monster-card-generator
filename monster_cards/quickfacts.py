@@ -20,7 +20,7 @@ def _as_mapping(value: Any) -> dict[str, Any]:
     return {}
 
 
-def choose_quick_facts(monster: dict[str, Any], max_items: int = 4) -> list[str]:
+def choose_quick_facts(monster: dict[str, Any], max_items: int | None = None) -> list[str]:
     """Pick compact, high-runtime-value facts.
 
     This is intentionally heuristic. Overrides should replace the result when a
@@ -57,13 +57,13 @@ def choose_quick_facts(monster: dict[str, Any], max_items: int = 4) -> list[str]
         bits = [x.strip() for x in senses.replace(";", ",").split(",")]
         for bit in bits:
             if bit and "passive perception" not in bit.casefold():
-                candidates.append((85, bit))
+                candidates.append((85, f"Senses: {bit}"))
 
     for keys, label, priority in [
         (("damage_immunities",), "Immune", 92),
         (("condition_immunities",), "Cond Immune", 90),
         (("damage_resistances",), "Resist", 88),
-        (("damage_vulnerabilities",), "Vulnerable", 88),
+        (("damage_vulnerabilities",), "Vuln.", 88),
     ]:
         value = first(monster, *keys, default=None)
         if value:
@@ -72,16 +72,20 @@ def choose_quick_facts(monster: dict[str, Any], max_items: int = 4) -> list[str]
             else:
                 text = strip_markup(value)
             if text:
-                candidates.append((priority, f"{label}: {text}"))
+                fact = f"Vuln. {text}" if label == "Vuln." else f"{label}: {text}"
+                candidates.append((priority, fact))
 
     # Languages are useful occasionally but deliberately low priority.
     languages = strip_markup(first(monster, "languages", default=""))
     if languages and languages.casefold() not in {"none", "-", "--"}:
-        candidates.append((20, languages))
+        candidates.append((20, f"Languages: {languages}"))
 
     candidates.sort(key=lambda x: x[0], reverse=True)
     facts: list[str] = []
     chars = 0
+    if max_items is None:
+        return [text for _, text in candidates]
+
     required_speed_count = len([speed for speed in additional_speeds if speed]) if isinstance(additional_speeds, list) else 0
     item_limit = max(max_items, required_speed_count)
     for priority, text in candidates:

@@ -21,6 +21,28 @@ def _measurement_renderer() -> CardRenderer:
 
 
 class RendererFlowTests(unittest.TestCase):
+    def test_middle_bar_overflow_becomes_labeled_blocks_before_traits(self):
+        renderer = _measurement_renderer()
+        card = SimpleNamespace(
+            quick_facts=[
+                "Stealth +3", "Cond Immune: blinded, deafened", "Vuln. fire",
+                "Senses: blindsight 60 ft. (blind beyond this radius)",
+                "Languages: understands Common but can’t speak",
+            ],
+            blocks=[RuleBlock("False Appearance:","The blight resembles a dead shrub.")],
+        )
+
+        renderer._prepare_fact_flow(card)
+
+        self.assertIn("Vuln. fire"," · ".join(card.quick_facts))
+        self.assertEqual([block.title for block in card.blocks[-3:]],[
+            "Senses:","Languages:","False Appearance:",
+        ])
+        self.assertLessEqual(
+            stringWidth(" · ".join(card.quick_facts),renderer.fonts["black"],5.8),
+            renderer.W-2*renderer.M-10,
+        )
+
     def test_large_block_splits_at_a_sentence_before_drawing(self):
         text = " ".join(
             f"Sentence {number} provides enough explanatory words to exercise semantic overflow handling."
