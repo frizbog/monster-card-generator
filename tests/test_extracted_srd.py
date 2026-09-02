@@ -25,9 +25,10 @@ class ExtractedSRDTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             custom = root / "custom"
-            custom.mkdir()
-            (custom / "zeta.json").write_text(json.dumps(document("Zeta Scout", "zeta")), encoding="utf-8")
-            (custom / "alpha.json").write_text(json.dumps(document("Alpha Scout", "alpha")), encoding="utf-8")
+            monsters = custom / "monsters"
+            monsters.mkdir(parents=True)
+            (monsters / "zeta.json").write_text(json.dumps(document("Zeta Scout", "zeta")), encoding="utf-8")
+            (monsters / "alpha.json").write_text(json.dumps(document("Alpha Scout", "alpha")), encoding="utf-8")
 
             repo = SRDRepository(root,custom)
 

@@ -1,8 +1,9 @@
 # Custom monsters
 
-The generator loads every `*.json` file directly in this directory by default,
-alongside the SRD repository. Files are read alphabetically. Keep one or more
-monster documents here; no command-line option is needed for the usual case.
+The generator loads every `*.json` file recursively under this directory by
+default, alongside the SRD repository. Files are read alphabetically by path.
+Keep monster documents under `monsters/` (or another subfolder); no command-line
+option is needed for the usual case.
 
 ```bash
 python cards.py inspect-srd

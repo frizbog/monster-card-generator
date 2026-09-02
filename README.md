@@ -153,8 +153,8 @@ Use a kit file instead when individual monsters need different override files.
 
 ### Custom monsters alongside the SRD
 
-Every `*.json` document in this project's `custom/` directory is loaded by
-default alongside the SRD. Each document must use the same structure as the SRD
+Every `*.json` document recursively under this project's `custom/` directory is
+loaded by default alongside the SRD. Each document must use the same structure as the SRD
 repository's `data/documents/monsters-a-z.json` file. See
 [`custom/README.md`](custom/README.md) for authoring instructions.
 

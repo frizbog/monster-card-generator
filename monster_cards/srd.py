@@ -34,7 +34,7 @@ class SRDRepository:
             )
         custom_path = Path(custom_monsters).expanduser().resolve() if custom_monsters else None
         if custom_path and custom_path.is_dir():
-            self.custom_monster_files = sorted(custom_path.glob("*.json"))
+            self.custom_monster_files = sorted(custom_path.rglob("*.json"))
             if not self.custom_monster_files:
                 raise SRDError(f"No custom monster JSON files found in directory: {custom_path}")
         elif custom_path and custom_path.is_file():
