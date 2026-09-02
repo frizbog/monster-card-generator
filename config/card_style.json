@@ -1,14 +1,23 @@
 {
-  "page_width_in": 4.25,
-  "page_height_in": 5.5,
-  "margin_pt": 12,
+  "page_width_in": 8.5,
+  "page_height_in": 11,
+  "card_width_in": 4.0625,
+  "card_height_in": 5.3125,
+  "margin_pt": 18,
+  "layout": {
+    "edge_label_inset_pt": 18,
+    "trim_guide_width_pt": 0.7,
+    "discard_hatch_spacing_pt": 7,
+    "discard_hatch_line_width_pt": 0.45
+  },
   "colors": {
     "teal": "#17657f",
     "dark": "#263238",
     "mid": "#52636a",
     "grid": "#36515b",
     "gray": "#7d8589",
-    "divider": "#86979d"
+    "divider": "#86979d",
+    "discard_hatch": "#d7dfe2"
   },
   "fonts": {
     "family": "Noto Sans",

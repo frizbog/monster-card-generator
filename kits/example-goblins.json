@@ -1,6 +1,7 @@
 {
   "name": "Goblins",
   "monsters": [
-    "Goblin Warrior"
+    "Goblin Warrior",
+    "Boar"
   ]
 }

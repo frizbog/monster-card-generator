@@ -21,9 +21,12 @@ class CardRenderer:
     def __init__(self, style_path: str | Path):
         self.style = json.loads(Path(style_path).read_text(encoding="utf-8"))
         self.fonts = register_noto()
-        self.W = self.style["page_width_in"] * PT_PER_IN
-        self.H = self.style["page_height_in"] * PT_PER_IN
-        self.M = float(self.style.get("margin_pt", 12))
+        self.PAGE_W = self.style["page_width_in"] * PT_PER_IN
+        self.PAGE_H = self.style["page_height_in"] * PT_PER_IN
+        self.W = self.style["card_width_in"] * PT_PER_IN
+        self.H = self.style["card_height_in"] * PT_PER_IN
+        self.M = float(self.style["margin_pt"])
+        self.layout = self.style["layout"]
         colors = self.style["colors"]
         self.TEAL = HexColor(colors["teal"])
         self.DARK = HexColor(colors["dark"])
@@ -31,6 +34,7 @@ class CardRenderer:
         self.GRID = HexColor(colors["grid"])
         self.GRAY = HexColor(colors["gray"])
         self.DIVIDER = HexColor(colors["divider"])
+        self.DISCARD_HATCH = HexColor(colors["discard_hatch"])
         self.sizes = self.style["sizes"]
         self.c: canvas.Canvas | None = None
         self._back_body_sizes: dict[int, float] = {}
@@ -42,16 +46,73 @@ class CardRenderer:
             self._prepare_block_flow(card)
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
-        self.c = canvas.Canvas(str(output), pagesize=(self.W, self.H))
+        self.c = canvas.Canvas(str(output), pagesize=(self.PAGE_W, self.PAGE_H))
         self.c.setTitle("Monster Cards")
-        for card in cards:
-            self._draw_front(card)
-            self.c.showPage()
-            self._draw_back(card)
+        for index in range(0,len(cards),2):
+            self._draw_spread(cards[index],top=True)
+            if index+1 < len(cards):
+                self._draw_spread(cards[index+1],top=False)
+            self._draw_discard_hatching()
+            self._draw_trim_guides()
             self.c.showPage()
         self.c.save()
         self.c = None
         return output
+
+    def _spread_origin(self, top: bool) -> tuple[float,float]:
+        return (0.0,self.PAGE_H-self.H) if top else (0.0,0.0)
+
+    def _draw_spread(self, card: MonsterCard, top: bool) -> None:
+        c = self.c; assert c
+        x,y = self._spread_origin(top)
+        c.saveState(); c.translate(x,y); self._draw_front(card); c.restoreState()
+        c.saveState(); c.translate(x+self.W,y); self._draw_back(card); c.restoreState()
+
+    def _trim_guide_segments(self) -> list[tuple[float,float,float,float]]:
+        """Solid guides for the two physical cuts made after folding the sheet."""
+        spread_right = 2*self.W
+        return [
+            (spread_right,0.0,spread_right,self.PAGE_H),
+            (0.0,self.H,self.PAGE_W,self.H),
+            (0.0,self.PAGE_H-self.H,self.PAGE_W,self.PAGE_H-self.H),
+        ]
+
+    def _discard_regions(self) -> list[tuple[float,float,float,float]]:
+        spread_right = 2*self.W
+        return [
+            (spread_right,0.0,self.PAGE_W-spread_right,self.PAGE_H),
+            (0.0,self.H,spread_right,self.PAGE_H-2*self.H),
+        ]
+
+    def _crosshatch_rect(self, x: float, y: float, width: float, height: float) -> None:
+        c = self.c; assert c
+        spacing = float(self.layout["discard_hatch_spacing_pt"])
+        c.saveState()
+        clip = c.beginPath(); clip.rect(x,y,width,height)
+        c.clipPath(clip,stroke=0,fill=0)
+        c.setStrokeColor(self.DISCARD_HATCH)
+        c.setLineWidth(float(self.layout["discard_hatch_line_width_pt"]))
+        start = x-height
+        end = x+width+height
+        position = start
+        while position <= end:
+            c.line(position,y,position+height,y+height)
+            c.line(position,y+height,position+height,y)
+            position += spacing
+        c.restoreState()
+
+    def _draw_discard_hatching(self) -> None:
+        for region in self._discard_regions():
+            self._crosshatch_rect(*region)
+
+    def _draw_trim_guides(self) -> None:
+        c = self.c; assert c
+        c.saveState()
+        c.setStrokeColor(self.DARK)
+        c.setLineWidth(float(self.layout["trim_guide_width_pt"]))
+        for x1,y1,x2,y2 in self._trim_guide_segments():
+            c.line(x1,y1,x2,y2)
+        c.restoreState()
 
     def _line(self, x1, y1, x2, y2, width=.7, color=None):
         c = self.c; assert c
@@ -119,13 +180,17 @@ class CardRenderer:
     def _dashboard(self, card: MonsterCard):
         top = self.H-self.M-58
         # AC and PP have matching frame insets; HP and Speed divide the span evenly.
-        xs = [43, 116.333, 189.667, 263]
+        dashboard_inset = 26
+        dashboard_span = self.W-2*self.M-2*dashboard_inset
+        xs = [self.M+dashboard_inset+i*dashboard_span/3 for i in range(4)]
         self._shield_ac(xs[0],top,card.ac); self._box_hp(xs[1],top,card.hp); self._arrow_speed(xs[2],top,card.speed); self._circle_pp(xs[3],top,card.passive_perception)
 
         # v0.3: no MODIFIERS / Raw Scores labels. Modifiers are deliberately large;
         # raw scores are supporting information beneath them.
         y1 = self.H-self.M-116
-        ax = [42,86,130,174,218,262]
+        ability_inset = 24
+        ability_span = self.W-2*self.M-2*ability_inset
+        ax = [self.M+ability_inset+i*ability_span/5 for i in range(6)]
         for x, abbr in zip(ax, ABILITIES):
             ability = card.abilities[abbr]
             self._center(abbr, x, y1, font="bold", size=self.sizes["ability_label"])
@@ -352,6 +417,11 @@ class CardRenderer:
             y = self._block(y,block,divider=drew_block)
             drew_block = True
 
+    @staticmethod
+    def _back_divider_y(previous_baseline: float, next_baseline: float) -> float:
+        """Center a divider in the whitespace between adjacent rule blocks."""
+        return (previous_baseline+next_baseline)/2
+
     def _draw_back(self, card: MonsterCard):
         c = self.c; assert c
         body_size = self._back_size_for(card)
@@ -359,41 +429,48 @@ class CardRenderer:
         inset=31; top=self.H-27; bot=27; left=31; right=self.W-31
         c.setStrokeColor(self.GRID); c.setLineWidth(.8); c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
         edge=f"{card.name.upper()} · CR {card.cr}"
+        edge_inset = float(self.layout["edge_label_inset_pt"])
         c.setFillColor(self.GRAY); c.setFont(self.fonts["bold"],self.sizes["edge_label"])
-        c.drawCentredString(self.W/2,11,edge)
-        c.saveState(); c.translate(self.W/2,self.H-11); c.rotate(180); c.drawCentredString(0,0,edge); c.restoreState()
+        c.drawCentredString(self.W/2,edge_inset,edge)
+        c.saveState(); c.translate(self.W/2,self.H-edge_inset); c.rotate(180); c.drawCentredString(0,0,edge); c.restoreState()
         # Corrected from the first prototype: both long-side labels rotated 180°.
-        c.saveState(); c.translate(11,self.H/2); c.rotate(-90); c.drawCentredString(0,0,edge); c.restoreState()
-        c.saveState(); c.translate(self.W-11,self.H/2); c.rotate(90); c.drawCentredString(0,0,edge); c.restoreState()
+        c.saveState(); c.translate(edge_inset,self.H/2); c.rotate(-90); c.drawCentredString(0,0,edge); c.restoreState()
+        c.saveState(); c.translate(self.W-edge_inset,self.H/2); c.rotate(90); c.drawCentredString(0,0,edge); c.restoreState()
 
         y=self.H-58
-        for index, block in enumerate(card.overflow):
-            if index:
-                self._line(left+10,y+2,right-10,y+2,width=.45,color=self.DIVIDER)
+        previous_baseline: float | None = None
+        for block in card.overflow:
+            first_baseline = y-8 if block.meta else y-4
+            if previous_baseline is not None:
+                divider_y = self._back_divider_y(previous_baseline,first_baseline)
+                self._line(left+10,divider_y,right-10,divider_y,width=.45,color=self.DIVIDER)
             if block.meta:
                 c.setFillColor(self.DARK); c.setFont(self.fonts["bold"],body_size)
                 c.drawString(left+11,y-8,block.title)
                 c.setFont(self.fonts["bold"],6.4); c.setFillColor(self.MID); c.drawRightString(right-11,y-8,block.meta)
                 yy=y-21; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],body_size)
+                last_baseline = y-8
                 for ln in simpleSplit(block.text,self.fonts["regular"],body_size,(right-left)-22):
-                    c.drawString(left+11,yy,ln); yy-=body_leading
+                    c.drawString(left+11,yy,ln); last_baseline=yy; yy-=body_leading
                 y=yy-6
             else:
                 title_lines, titlew, lines, inline = self._back_inline_layout(block,body_size)
                 yy=y-4; c.setFillColor(self.DARK)
+                last_baseline = yy
                 if inline:
                     c.setFont(self.fonts["bold"],body_size); c.drawString(left+11,yy,block.title)
                     c.setFont(self.fonts["regular"],body_size)
                     for text, is_first in lines:
-                        c.drawString(left+11+titlew if is_first else left+11,yy,text); yy-=body_leading
+                        c.drawString(left+11+titlew if is_first else left+11,yy,text); last_baseline=yy; yy-=body_leading
                 else:
                     c.setFont(self.fonts["bold"],body_size)
                     for title_line in title_lines:
-                        c.drawString(left+11,yy,title_line); yy-=body_leading
+                        c.drawString(left+11,yy,title_line); last_baseline=yy; yy-=body_leading
                     c.setFont(self.fonts["regular"],body_size)
                     for text, _ in lines:
-                        c.drawString(left+11,yy,text); yy-=body_leading
+                        c.drawString(left+11,yy,text); last_baseline=yy; yy-=body_leading
                 y=yy-1
+            previous_baseline = last_baseline
         if card.source_note:
             c.setFillColor(self.GRAY); c.setFont(self.fonts["regular"],4.7)
             lines=simpleSplit(card.source_note,self.fonts["regular"],4.7,right-left-20)

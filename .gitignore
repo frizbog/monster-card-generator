@@ -7,3 +7,4 @@ custom/
 
 kits/*.json
 !kits/example-goblins.json
+AGENTS.md

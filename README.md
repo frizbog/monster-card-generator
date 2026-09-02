@@ -6,7 +6,10 @@ The project deliberately keeps the **SRD data repository separate** from the **c
 
 ## What this version does
 
-- Renders one card per PDF page at **4.25 x 5.5 inches**.
+- Renders two foldable card spreads per standard portrait US Letter PDF page
+  (**8.5 x 11 inches**), with no special printer-driver setup.
+- Sizes each unfolded spread to **8 1/8 x 5 5/16 inches** so four folded cards
+  fit in a 9 x 11.5 inch laminating pouch with laminate tolerance.
 - Uses the v0.2/v0.3 visual grammar: teal identity header; AC/HP/Speed/PP dashboard; six abilities; flexible quick-facts strip; flowing rules section; mostly empty reverse with four edge labels.
 - Uses **Noto Sans**. Ability modifiers are deliberately large; the old `MODIFIERS` and `Raw Scores` labels are gone.
 - Corrects the reverse long-edge orientation: the left and right edge labels are rotated 180 degrees from the first prototype.
@@ -327,21 +330,130 @@ The renderer knows nothing about the upstream SRD repository. If the upstream sc
 
 ## Important current limitation
 
-This is **v0.1 of the reusable code**, not a finished publishing engine. Generic source descriptions can be too verbose for a card. The renderer will move some late blocks to the reverse, but it does not yet perform perfect predictive pagination of a single giant block before drawing it.
+This is **v0.1 of the reusable code**, not a finished publishing engine. Generic source descriptions can still be too verbose for a card. The renderer measures text before drawing, moves overflow predictively, and reduces back-side continuation text when needed; if the complete content still cannot fit, it reports an explicit overflow error.
 
 That is intentional at this stage: use `--dump-normalized`, create overrides for the cards you actually care about, and let real monsters tell us what the next general rule should be.
 
 The next valuable improvements are likely:
 
-- better predictive front/back layout before any block is drawn;
 - a reusable spell-summary library;
 - smarter recognition of attack syntax from SRD action prose;
-- printing/imposition helper for four cards per Letter sheet;
+- additional printer calibration guidance for the foldable Letter-sheet workflow;
 - card/kit batch manifests and validation.
 
-## Printing
+## Printing, cutting, folding, and laminating
 
-The canonical PDF is **one card per PDF page at actual finished size**. Keep it that way. Let Acrobat, Preview, Staples, or a later imposition helper do four-up printing. Avoid baking Letter-sheet imposition into the card renderer.
+Each PDF page is a normal portrait US Letter page: **8.5 x 11 inches**. It
+contains two unfolded card spreads, one in the top half and one in the bottom
+half. Each spread is **8 1/8 x 5 5/16 inches**, with the front on the left and
+the back on the right; the panels touch at the vertical center fold. Card 1 is
+flush with the top and left paper edges. Card 2 is flush with the bottom and
+left paper edges.
+
+This layout is intentional. It puts both sides of a card on the same printed
+side of the paper, so the front and back cannot drift out of registration as
+they can with duplex printing.
+
+The PDF includes solid cutter guides at the right edge of the spreads and at
+both edges of the narrow center band. After the first fold, the two center-band
+guides coincide. There is deliberately no line at the sheet's 5.5-inch fold:
+every solid guide is a line to cut, not a line to fold. A light, unlabeled
+crosshatch fills the portions that will be discarded; the darker solid lines
+remain the cutting guides.
+
+```text
+Portrait US Letter page (8.5 x 11 in.)
+
+top paper edge
+┌────────────────────────────────────────────────────────────┬───┐
+│  Card 1 spread: FRONT          | BACK                      │   │
+│                                 fold                       │   │
+│                                |                           │   │
+│                                                            │   │
+│          3/16 in. reserved beside center fold              │   │
+│════════ fold full sheet here, printed side out ════════════│═══│
+│          3/16 in. reserved beside center fold              │   │
+│                                                            │   │
+│                                |                           │   │
+│                                 fold                       │   │
+│  Card 2 spread: FRONT          | BACK                      │   │
+└────────────────────────────────────────────────────────────┴───┘
+bottom paper edge                                           right paper edge
+                                                             ↑
+                                           Cut 1 after folding: 3/8 in.
+
+The left, top, and bottom paper edges are retained.
+```
+
+For a practical batch workflow:
+
+1. Print the PDF at **Actual Size** or **100%** on ordinary US Letter paper.
+   Do not use “Fit,” “Shrink,” borderless scaling, duplex mode, or a custom
+   paper size. The printer driver only needs to handle a vanilla Letter page.
+2. Fold the full Letter sheet across its horizontal centerline, printed side
+   out. This produces one folded **8.5 x 5.5 inch** piece with both printed
+   spreads visible and the two halves perfectly stacked.
+3. Trim **3/8 inch** from the right paper edge, perpendicular to the fold. This
+   trims both stacked spreads to **8 1/8 inches** wide in one cut. Cut on the
+   visible vertical guide.
+4. Trim **3/16 inch** from the folded edge, parallel to the fold. Discard the
+   narrow strip containing the entire fold. This cut separates the two spreads
+   and leaves each one **5 5/16 inches** tall. The two visible horizontal guides
+   align after Step 2's fold, providing the cut line on both faces.
+5. Fold each separated spread vertically along the shared long edge between the
+   front and back panels. The folded paper card is **4 1/16 x 5 5/16 inches**.
+6. Arrange four folded cards in a 2 x 2 grid in a 9 x 11.5 inch laminating
+   pouch and laminate them.
+
+```text
+Cut and fold sequence
+
+1. Fold full Letter sheet at 5.5 in., printed side OUT:
+
+   open sheet                         folded stack: 8.5 x 5.5 in.
+   ┌──────────────────────┐           ┌────────────────────────┐
+   │ Card 1 spread        │           │ Cards 1&2 back to back │
+   │======================│  fold →   └────────────────────────┘ ← folded edge
+   │ Card 2 spread        │
+   └──────────────────────┘
+
+2. Cut 3/8 in. from the right edge, through both layers:
+
+   ┌────────────────────┬─┐
+   │ stacked spreads    │x│  x = 3/8 in. → discard
+   └────────────────────┴─┘
+
+3. Cut 3/16 in. from the folded edge, parallel to it:
+
+   ┌────────────────────┐
+   │ stacked spreads    │
+   ├────────────────────┤  y = 3/16 in. folded strip → discard
+   └────────────────────┘
+
+   The two layers are now separate 8 1/8 x 5 5/16 in. card spreads.
+```
+
+```text
+Finished pouch layout (9 x 11.5 in.)
+
+              11.5" side
+┌──────────────────────────────────┐
+│  ┌────────────┐  ┌────────────┐  │
+│  │ Card 1     │  │ Card 2     │  │
+│  └────────────┘  └────────────┘  │
+│                                  │   9" side
+│  ┌────────────┐  ┌────────────┐  │
+│  │ Card 3     │  │ Card 4     │  │
+│  └────────────┘  └────────────┘  │
+└──────────────────────────────────┘
+
+Each folded card: 4 1/16 x 5 5/16 in.
+```
+
+The card dimensions leave 1/8 inch of total slack in each pouch direction,
+above the required 3/16-inch laminate material around every card. Keep the two
+panels adjacent at the fold; do not insert a gutter there, since the fold itself
+is the registration hinge.
 
 ## Attribution
 
