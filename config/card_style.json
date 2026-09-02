@@ -5,13 +5,12 @@
   "card_height_in": 5.3125,
   "margin_pt": 18,
   "layout": {
-    "edge_label_inset_pt": 18,
     "trim_guide_width_pt": 0.7,
     "discard_hatch_spacing_pt": 7,
     "discard_hatch_line_width_pt": 0.45,
-    "back_frame_horizontal_inset_pt": 31,
-    "back_frame_vertical_inset_pt": 27,
-    "back_text_top_offset_pt": 32,
+    "back_edge_band_in": 0.4,
+    "back_frame_line_width_pt": 0.8,
+    "back_text_top_padding_em": 1.0,
     "back_text_bottom_padding_pt": 8,
     "back_source_note_clearance_pt": 6,
     "back_source_note_leading_pt": 5.5
@@ -42,7 +41,8 @@
     "ability_score": 7.2,
     "quick_facts": 8.5,
     "body": 8.5,
-    "edge_label": 8.0,
+    "edge_label_max": 24.0,
+    "edge_label_min": 5.0,
     "source_note": 4.7
   }
 }

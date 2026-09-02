@@ -7,7 +7,7 @@ from typing import Iterable
 
 from reportlab.lib.colors import HexColor, white
 from reportlab.lib.utils import simpleSplit
-from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfbase.pdfmetrics import getAscentDescent, stringWidth
 from reportlab.pdfgen import canvas
 
 from .fonts import register_noto
@@ -35,6 +35,9 @@ class CardRenderer:
         self.H = self.sheet.card_height
         self.M = self.sheet.artwork_inset
         self.layout = self.style["layout"]
+        self.back_edge_band = float(self.layout["back_edge_band_in"]) * PT_PER_IN
+        if self.back_edge_band <= self.M:
+            raise ValueError("layout.back_edge_band_in must exceed margin_pt / 72")
         colors = self.style["colors"]
         self.TEAL = HexColor(colors["teal"])
         self.DARK = HexColor(colors["dark"])
@@ -257,27 +260,54 @@ class CardRenderer:
             y -= 23
         return y-7
 
-    def _back_frame_insets(self) -> tuple[float, float]:
-        """Return the configured horizontal and vertical inset of the back frame."""
-        return (
-            float(self.layout["back_frame_horizontal_inset_pt"]),
-            float(self.layout["back_frame_vertical_inset_pt"]),
-        )
-
     def _back_text_width(self) -> float:
         """Return usable width inside the back frame after its text padding."""
-        horizontal, _ = self._back_frame_insets()
-        return self.W - 2*horizontal - 22
+        return self.W - 2*self.back_edge_band - 22
+
+    def _back_text_start(self, body_size: float) -> float:
+        """Anchor back text below the inset frame by a body-text-relative gap."""
+        padding = float(self.layout["back_text_top_padding_em"]) * body_size
+        return self.H-self.back_edge_band-padding
+
+    def _back_edge_label_size(self, edge: str) -> float:
+        """Fit an edge label inside both the physical band and its long-side span."""
+        band_capacity = self.back_edge_band-self.M-float(self.layout["back_frame_line_width_pt"])/2
+        minimum = float(self.sizes["edge_label_min"])
+        if band_capacity < minimum:
+            raise RuntimeError(
+                "The back edge band is too narrow for the minimum edge-label font size"
+            )
+        # Start at a deliberately generous maximum and back off only when the
+        # physical band or the label's long edge requires it. The label therefore
+        # grows with a wider band instead of staying at a legacy fixed size.
+        size = min(float(self.sizes["edge_label_max"]), band_capacity)
+        while size > minimum:
+            ascent, descent = getAscentDescent(self.fonts["bold"], size)
+            if ascent-descent <= band_capacity:
+                break
+            size -= .25
+        ascent, descent = getAscentDescent(self.fonts["bold"], size)
+        if ascent-descent > band_capacity:
+            raise RuntimeError(
+                "The back edge band is too narrow for the minimum edge-label font size"
+            )
+        return self._fit(edge,self.W-2*self.back_edge_band,size,minimum,"bold")
+
+    def _back_edge_label_baseline(self, size: float) -> float:
+        """Center the actual glyph bounds in the safe portion of the edge band."""
+        ascent, descent = getAscentDescent(self.fonts["bold"], size)
+        label_floor = self.M
+        label_ceiling = self.back_edge_band-float(self.layout["back_frame_line_width_pt"])/2
+        return (label_floor+label_ceiling-ascent-descent)/2
 
     def _back_text_floor(self, card: MonsterCard) -> float:
-        _, bot = self._back_frame_insets()
         bottom_padding = float(self.layout["back_text_bottom_padding_pt"])
         if not card.source_note:
-            return bot+bottom_padding
+            return self.back_edge_band+bottom_padding
         note_size = self.sizes["source_note"]
         note_leading = float(self.layout["back_source_note_leading_pt"])
         lines = simpleSplit(card.source_note,self.fonts["regular"],note_size,self._back_text_width()+2)
-        top_baseline = bot+bottom_padding+note_leading*(len(lines)-1)
+        top_baseline = self.back_edge_band+bottom_padding+note_leading*(len(lines)-1)
         return top_baseline+float(self.layout["back_source_note_clearance_pt"])
 
     def _back_block_height(self, block: RuleBlock, size: float | None = None) -> float:
@@ -320,7 +350,7 @@ class CardRenderer:
         return getattr(self,"_back_body_sizes",{}).get(id(card),float(self.sizes["body"]))
 
     def _back_fit(self, card: MonsterCard, size: float):
-        y = self.H-float(self.layout["back_text_top_offset_pt"])
+        y = self._back_text_start(size)
         floor = self._back_text_floor(card)
         for block in card.overflow:
             next_y = y-self._back_block_height(block,size)
@@ -453,20 +483,22 @@ class CardRenderer:
         c = self.c; assert c
         body_size = self._back_size_for(card)
         body_leading = body_size*1.34
-        horizontal_inset, vertical_inset = self._back_frame_insets()
-        top=self.H-vertical_inset; bot=vertical_inset
-        left=horizontal_inset; right=self.W-horizontal_inset
-        c.setStrokeColor(self.GRID); c.setLineWidth(.8); c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
+        top=self.H-self.back_edge_band; bot=self.back_edge_band
+        left=self.back_edge_band; right=self.W-self.back_edge_band
+        c.setStrokeColor(self.GRID); c.setLineWidth(float(self.layout["back_frame_line_width_pt"])); c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
         edge=f"{card.name.upper()} · CR {card.cr}"
-        edge_inset = float(self.layout["edge_label_inset_pt"])
-        c.setFillColor(self.GRAY); c.setFont(self.fonts["bold"],self.sizes["edge_label"])
+        # Font ascenders extend above a baseline, so center the glyph metrics—not
+        # the baseline itself—in the usable band between margin and inner frame.
+        edge_size = self._back_edge_label_size(edge)
+        edge_inset = self._back_edge_label_baseline(edge_size)
+        c.setFillColor(self.GRAY); c.setFont(self.fonts["bold"],edge_size)
         c.drawCentredString(self.W/2,edge_inset,edge)
         c.saveState(); c.translate(self.W/2,self.H-edge_inset); c.rotate(180); c.drawCentredString(0,0,edge); c.restoreState()
         # Corrected from the first prototype: both long-side labels rotated 180°.
         c.saveState(); c.translate(edge_inset,self.H/2); c.rotate(-90); c.drawCentredString(0,0,edge); c.restoreState()
         c.saveState(); c.translate(self.W-edge_inset,self.H/2); c.rotate(90); c.drawCentredString(0,0,edge); c.restoreState()
 
-        y=self.H-float(self.layout["back_text_top_offset_pt"])
+        y=self._back_text_start(body_size)
         previous_baseline: float | None = None
         for block in card.overflow:
             first_baseline = y-8 if block.meta else y-4

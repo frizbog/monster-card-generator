@@ -8,12 +8,12 @@ from monster_cards.io import load_manual_cards
 from monster_cards.layout import SheetLayout
 from monster_cards.model import RuleBlock
 from monster_cards.renderer import CardRenderer
-from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfbase.pdfmetrics import getAscentDescent, stringWidth
 
 
 def _measurement_renderer() -> CardRenderer:
     renderer = CardRenderer.__new__(CardRenderer)
-    renderer.sizes = {"body": 8.5, "source_note": 4.7}
+    renderer.sizes = {"body": 8.5, "source_note": 4.7, "edge_label_max": 24, "edge_label_min": 5}
     renderer.fonts = {
         "regular": "Helvetica",
         "bold": "Helvetica-Bold",
@@ -25,13 +25,14 @@ def _measurement_renderer() -> CardRenderer:
     renderer.H = 5.3125 * 72
     renderer.M = 18
     renderer.layout = {
-        "back_frame_horizontal_inset_pt": 31,
-        "back_frame_vertical_inset_pt": 27,
-        "back_text_top_offset_pt": 58,
+        "back_edge_band_in": 0.375,
+        "back_frame_line_width_pt": 0.8,
+        "back_text_top_padding_em": 1.0,
         "back_text_bottom_padding_pt": 8,
         "back_source_note_clearance_pt": 6,
         "back_source_note_leading_pt": 5.5,
     }
+    renderer.back_edge_band = 27
     renderer.sheet = SheetLayout(
         page_width=renderer.PAGE_W,
         page_height=renderer.PAGE_H,
@@ -43,6 +44,19 @@ def _measurement_renderer() -> CardRenderer:
 
 
 class RendererFlowTests(unittest.TestCase):
+    def test_back_edge_band_controls_the_inset_frame_width(self):
+        renderer = _measurement_renderer()
+        self.assertEqual(renderer._back_text_width(), renderer.W - 2*27 - 22)
+        self.assertEqual(renderer._back_text_start(8.5), renderer.H - 27 - 8.5)
+        size = renderer._back_edge_label_size("EDGE")
+        ascent, descent = getAscentDescent(renderer.fonts["bold"], size)
+        self.assertLessEqual(
+            ascent-descent,
+            renderer.back_edge_band-renderer.M-renderer.layout["back_frame_line_width_pt"]/2,
+        )
+        renderer.back_edge_band = 54
+        self.assertGreater(renderer._back_edge_label_size("EDGE"), size)
+
     def test_back_divider_is_midway_between_adjacent_block_text(self):
         self.assertEqual(CardRenderer._back_divider_y(120,96),108)
 
