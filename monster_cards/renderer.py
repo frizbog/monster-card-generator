@@ -33,6 +33,7 @@ class CardRenderer:
         self.DIVIDER = HexColor(colors["divider"])
         self.sizes = self.style["sizes"]
         self.c: canvas.Canvas | None = None
+        self._back_body_sizes: dict[int, float] = {}
 
     def render(self, cards: Iterable[MonsterCard], output: str | Path) -> Path:
         cards = list(cards)
@@ -190,17 +191,26 @@ class CardRenderer:
         top_baseline = bot+8+5.5*(len(lines)-1)
         return top_baseline+6
 
-    def _back_block_height(self, block: RuleBlock) -> float:
+    def _back_block_height(self, block: RuleBlock, size: float | None = None) -> float:
+        size = float(self.sizes["body"] if size is None else size)
+        leading = size*1.34
         if block.meta:
-            lines = simpleSplit(block.text,self.fonts["regular"],6.7,(self.W-62)-22)
-            return 27 + len(lines)*8.8
-        _, lines = self._back_inline_layout(block)
-        return 5 + len(lines)*8.8
+            lines = simpleSplit(block.text,self.fonts["regular"],size,(self.W-62)-22)
+            return 27 + len(lines)*leading
+        title_lines, _, lines, inline = self._back_inline_layout(block,size)
+        if inline:
+            return 5 + max(1, len(lines))*leading
+        return 5 + (len(title_lines)+len(lines))*leading
 
-    def _back_inline_layout(self, block: RuleBlock):
-        size = 6.7
+    def _back_inline_layout(self, block: RuleBlock, size: float | None = None):
+        size = float(self.sizes["body"] if size is None else size)
         width = (self.W-62)-22
-        titlew = stringWidth(block.title,self.fonts["black"],8.3)+4
+        titlew = stringWidth(block.title,self.fonts["bold"],size)+4
+        if titlew > width-20:
+            title_lines = simpleSplit(block.title,self.fonts["bold"],size,width)
+            body_lines = [(line, False) for line in simpleSplit(block.text,self.fonts["regular"],size,width)]
+            return title_lines, 0, body_lines, False
+
         firstw = max(20,width-titlew)
         words = block.text.split(); lines=[]; cur=""; first_line=True
         while words:
@@ -214,7 +224,20 @@ class CardRenderer:
                     lines.append((word,first_line)); first_line=False; cur=""
         if cur:
             lines.append((cur,first_line))
-        return titlew, lines
+        return [block.title], titlew, lines, True
+
+    def _back_size_for(self, card: MonsterCard) -> float:
+        return getattr(self,"_back_body_sizes",{}).get(id(card),float(self.sizes["body"]))
+
+    def _back_fit(self, card: MonsterCard, size: float):
+        y = self.H-58
+        floor = self._back_text_floor(card)
+        for block in card.overflow:
+            next_y = y-self._back_block_height(block,size)
+            if next_y < floor:
+                return False,block,floor-next_y
+            y = next_y
+        return True,None,0.0
 
     @staticmethod
     def _continuation_title(title: str) -> str:
@@ -271,17 +294,21 @@ class CardRenderer:
         card.blocks = front
         card.overflow = carried+card.overflow
 
-        y = self.H-58
-        floor = self._back_text_floor(card)
-        for block in card.overflow:
-            next_y = y-self._back_block_height(block)
-            if next_y < floor:
-                title = block.title or "untitled block"
-                raise RuntimeError(
-                    f"Text overflow for {card.name!r}: {title!r} does not fit on the back "
-                    f"({floor-next_y:.1f} pt too tall)"
-                )
-            y = next_y
+        size = float(self.sizes["body"])
+        while size >= .5:
+            fits,block,excess = self._back_fit(card,size)
+            if fits:
+                if not hasattr(self,"_back_body_sizes"):
+                    self._back_body_sizes = {}
+                self._back_body_sizes[id(card)] = size
+                return
+            size -= 1
+
+        title = (block.title if block else "untitled block") or "untitled block"
+        raise RuntimeError(
+            f"Text overflow for {card.name!r}: {title!r} does not fit on the back "
+            f"even at 0.5 pt ({excess:.1f} pt too tall)"
+        )
 
     def _draw_front(self, card: MonsterCard):
         self._outer(); self._header(card); y=self._dashboard(card); y=self._facts(y,card.quick_facts); y-=7
@@ -292,6 +319,8 @@ class CardRenderer:
 
     def _draw_back(self, card: MonsterCard):
         c = self.c; assert c
+        body_size = self._back_size_for(card)
+        body_leading = body_size*1.34
         inset=31; top=self.H-27; bot=27; left=31; right=self.W-31
         c.setStrokeColor(self.GRID); c.setLineWidth(.8); c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
         edge=f"{card.name.upper()} · CR {card.cr}"
@@ -306,19 +335,29 @@ class CardRenderer:
         for index, block in enumerate(card.overflow):
             if index:
                 self._line(left+10,y+2,right-10,y+2,width=.45,color=self.DIVIDER)
-            title_y = y-8 if block.meta else y-4
-            c.setFillColor(self.DARK); c.setFont(self.fonts["black"],8.3); c.drawString(left+11,title_y,block.title)
             if block.meta:
+                c.setFillColor(self.DARK); c.setFont(self.fonts["bold"],body_size)
+                c.drawString(left+11,y-8,block.title)
                 c.setFont(self.fonts["bold"],6.4); c.setFillColor(self.MID); c.drawRightString(right-11,y-8,block.meta)
-                yy=y-21; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],6.7)
-                for ln in simpleSplit(block.text,self.fonts["regular"],6.7,(right-left)-22):
-                    c.drawString(left+11,yy,ln); yy-=8.8
+                yy=y-21; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],body_size)
+                for ln in simpleSplit(block.text,self.fonts["regular"],body_size,(right-left)-22):
+                    c.drawString(left+11,yy,ln); yy-=body_leading
                 y=yy-6
             else:
-                titlew, lines = self._back_inline_layout(block)
-                yy=y-4; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],6.7)
-                for text, is_first in lines:
-                    c.drawString(left+11+titlew if is_first else left+11,yy,text); yy-=8.8
+                title_lines, titlew, lines, inline = self._back_inline_layout(block,body_size)
+                yy=y-4; c.setFillColor(self.DARK)
+                if inline:
+                    c.setFont(self.fonts["bold"],body_size); c.drawString(left+11,yy,block.title)
+                    c.setFont(self.fonts["regular"],body_size)
+                    for text, is_first in lines:
+                        c.drawString(left+11+titlew if is_first else left+11,yy,text); yy-=body_leading
+                else:
+                    c.setFont(self.fonts["bold"],body_size)
+                    for title_line in title_lines:
+                        c.drawString(left+11,yy,title_line); yy-=body_leading
+                    c.setFont(self.fonts["regular"],body_size)
+                    for text, _ in lines:
+                        c.drawString(left+11,yy,text); yy-=body_leading
                 y=yy-1
         if card.source_note:
             c.setFillColor(self.GRAY); c.setFont(self.fonts["regular"],4.7)

@@ -3,6 +3,7 @@ import unittest
 
 from monster_cards.model import RuleBlock
 from monster_cards.renderer import CardRenderer
+from reportlab.pdfbase.pdfmetrics import stringWidth
 
 
 def _measurement_renderer() -> CardRenderer:
@@ -40,6 +41,46 @@ class RendererFlowTests(unittest.TestCase):
         self.assertEqual(card.overflow[0].title, "Long Feature (cont.):")
         self.assertTrue(card.blocks[0].text.endswith("."))
         self.assertEqual(f"{card.blocks[0].text} {card.overflow[0].text}", text)
+
+    def test_long_back_title_wraps_before_explanatory_text(self):
+        renderer = _measurement_renderer()
+        block = RuleBlock(
+            "Bonus Action - Trampling Charge (Recharge 5–6) (cont.):",
+            "Each creature whose space the centaur enters must make a saving throw.",
+        )
+
+        title_lines, title_width, body_lines, inline = renderer._back_inline_layout(block)
+        available_width = (renderer.W-62)-22
+        body_size = renderer.sizes["body"]
+
+        self.assertFalse(inline)
+        self.assertEqual(title_width, 0)
+        self.assertGreater(len(title_lines), 1)
+        self.assertTrue(all(
+            stringWidth(line,renderer.fonts["bold"],body_size) <= available_width
+            for line in title_lines
+        ))
+        self.assertTrue(all(
+            stringWidth(line,renderer.fonts["regular"],body_size) <= available_width
+            for line, _ in body_lines
+        ))
+
+    def test_back_font_decreases_in_one_point_steps_until_all_text_fits(self):
+        renderer = _measurement_renderer()
+        card = SimpleNamespace(
+            name="Adaptive Back Test",
+            quick_facts=[],
+            blocks=[],
+            overflow=[RuleBlock("Feature:", "word "*275)],
+            source_note=None,
+        )
+
+        self.assertFalse(renderer._back_fit(card,8.5)[0])
+        self.assertTrue(renderer._back_fit(card,7.5)[0])
+
+        renderer._prepare_block_flow(card)
+
+        self.assertEqual(renderer._back_size_for(card),7.5)
 
 
 if __name__ == "__main__":
