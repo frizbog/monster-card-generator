@@ -55,6 +55,8 @@ On Windows PowerShell the activation command is:
 
 The renderer **does not bundle font files**. Install the upright Noto Sans variable font on your computer (for example via Google Fonts / Font Book on macOS). The usual Google Fonts download is named `NotoSans-VariableFont_wdth,wght.ttf`; the renderer selects its Light, Regular, Bold, and Black weights. Separate static weight files are also supported.
 
+As of Thu Sep 3 2026, a good URL is https://fonts.google.com/noto/specimen/Noto+Sans
+
 The code searches common macOS, Linux, and Windows font directories. If needed, point it at the directory containing the `.ttf` files:
 
 ```bash
@@ -80,6 +82,9 @@ output/sample-cards.pdf
 This is the quickest way to verify ReportLab + Noto Sans + PDF rendering on your machine.
 
 ## 5. Keep an SRD JSON clone next to this repo
+
+The recommended SRD JSON repo can be found at https://github.com/Cantilux/dnd-srd-json.
+This is the repo the code was developed and tested against.
 
 Recommended directory shape:
 
@@ -393,6 +398,7 @@ For a practical batch workflow:
 1. Print the PDF at **Actual Size** or **100%** on ordinary US Letter paper.
    Do not use “Fit,” “Shrink,” borderless scaling, duplex mode, or a custom
    paper size. The printer driver only needs to handle a vanilla Letter page.
+   **Margins are already built into the PDF content.**
 2. Fold the full Letter sheet across its horizontal centerline, printed side
    out. This produces one folded **8.5 x 5.5 inch** piece with both printed
    spreads visible and the two halves perfectly stacked.
