@@ -270,6 +270,34 @@ That contains card dimensions, colors, and most font sizes. For example:
 
 is the new large ability-modifier size.
 
+The front header is sized from visible proportions rather than independent
+coordinates. `layout.front_header.height_in` controls the teal band's physical
+height. `name_height_percent` and `challenge_rating_height_percent` derive those
+font sizes from the padded band height; the subtitle uses the portion of the
+two-row stack not assigned to the name. Text is measured and reduced further
+only when its available horizontal space requires it. The dashboard follows the
+bottom of the header using `primary_stats.top_gap_height_percent`.
+
+The AC, HP, Speed, and PP icons similarly derive from
+`layout.primary_stats.icon_height_in`. Their original aspect ratios are locked,
+their internal coordinates scale with the height, and their label and value
+fonts use the configured height percentages. The icons remain centered in four
+evenly spaced columns and report an error if the requested height makes their
+locked widths overlap.
+
+`layout.abilities.band_height_in` controls the complete ability-score band.
+After its padding and row gaps, `modifier_height_percent` assigns the middle
+modifier row's share; the label and raw-score rows divide the remainder equally.
+Their fonts are calculated from cap height because these rows contain only
+uppercase labels, signs, and digits—no descenders need to be reserved. The
+printable width between the artwork insets is always divided into six equal
+columns, independent of the band height.
+
+As a general style convention for these responsive bands, absolute physical
+measurements use inches while internal geometry uses percentages of the named
+height or width. Point values remain elsewhere where that migration has not yet
+been useful; this is a design direction rather than a format-wide restriction.
+
 ### Layout / geometry tweaks
 
 Edit:

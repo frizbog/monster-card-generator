@@ -7,7 +7,7 @@ from typing import Iterable
 
 from reportlab.lib.colors import HexColor, white
 from reportlab.lib.utils import simpleSplit
-from reportlab.pdfbase.pdfmetrics import getAscentDescent, stringWidth
+from reportlab.pdfbase.pdfmetrics import getAscentDescent, getFont, stringWidth
 from reportlab.pdfgen import canvas
 
 from .fonts import register_noto
@@ -24,6 +24,16 @@ class CardRenderer:
     spread, so front/back drawing stays independent of sheet placement.
     """
 
+    # These are intrinsic properties of the four vector shapes. Their configured
+    # height may change, but their width-to-height proportions never do.
+    PRIMARY_STAT_REFERENCE_HEIGHT = 42
+    PRIMARY_STAT_ASPECT_RATIOS = {
+        "ac": 46/PRIMARY_STAT_REFERENCE_HEIGHT,
+        "hp": 43/PRIMARY_STAT_REFERENCE_HEIGHT,
+        "speed": 52/PRIMARY_STAT_REFERENCE_HEIGHT,
+        "pp": 1.0,
+    }
+
     def __init__(self, style_path: str | Path):
         # JSON is the authority for printable dimensions, colors, and type sizes.
         self.style = json.loads(Path(style_path).read_text(encoding="utf-8"))
@@ -35,6 +45,47 @@ class CardRenderer:
         self.H = self.sheet.card_height
         self.M = self.sheet.artwork_inset
         self.layout = self.style["layout"]
+        self.front_header = self.layout["front_header"]
+        self.front_header_height = float(self.front_header["height_in"]) * PT_PER_IN
+        name_percent = float(self.front_header["name_height_percent"])
+        cr_percent = float(self.front_header["challenge_rating_height_percent"])
+        if not 0 < name_percent < 100:
+            raise ValueError("layout.front_header.name_height_percent must be between 0 and 100")
+        if not 0 < cr_percent <= 100:
+            raise ValueError(
+                "layout.front_header.challenge_rating_height_percent must be between 0 and 100"
+            )
+        if self._front_header_usable_height() <= 0:
+            raise ValueError("layout.front_header padding and gap must leave usable height")
+        self.primary_stats = self.layout["primary_stats"]
+        self.primary_stat_height = float(self.primary_stats["icon_height_in"]) * PT_PER_IN
+        if self.primary_stat_height <= 0:
+            raise ValueError("layout.primary_stats.icon_height_in must be positive")
+        for key in ("label_row_height_percent","label_height_percent","value_height_percent"):
+            percent = float(self.primary_stats[key])
+            if not 0 < percent < 100:
+                raise ValueError(f"layout.primary_stats.{key} must be between 0 and 100")
+        text_padding_percent = float(self.primary_stats["text_horizontal_padding_percent"])
+        if not 0 <= text_padding_percent < 50:
+            raise ValueError(
+                "layout.primary_stats.text_horizontal_padding_percent must be between 0 and 50"
+            )
+        self.abilities = self.layout["abilities"]
+        self.ability_band_height = float(self.abilities["band_height_in"]) * PT_PER_IN
+        if self.ability_band_height <= 0:
+            raise ValueError("layout.abilities.band_height_in must be positive")
+        modifier_percent = float(self.abilities["modifier_height_percent"])
+        if not 0 < modifier_percent < 100:
+            raise ValueError(
+                "layout.abilities.modifier_height_percent must be between 0 and 100"
+            )
+        ability_text_padding = float(self.abilities["text_horizontal_padding_percent"])
+        if not 0 <= ability_text_padding < 50:
+            raise ValueError(
+                "layout.abilities.text_horizontal_padding_percent must be between 0 and 50"
+            )
+        if self._ability_usable_height() <= 0:
+            raise ValueError("layout.abilities padding and gaps must leave usable height")
         self.back_edge_band = float(self.layout["back_edge_band_in"]) * PT_PER_IN
         if self.back_edge_band <= self.M:
             raise ValueError("layout.back_edge_band_in must exceed margin_pt / 72")
@@ -143,70 +194,377 @@ class CardRenderer:
         c = self.c; assert c
         c.setStrokeColor(self.GRID); c.setLineWidth(1); c.rect(self.M, self.M, self.W - 2*self.M, self.H - 2*self.M, stroke=1, fill=0)
 
+    def _front_header_usable_height(self) -> float:
+        """Return header height available to the name and subtitle rows."""
+        padding = self.front_header_height*float(
+            self.front_header["vertical_padding_height_percent"]
+        )/100
+        gap = self.front_header_height*float(
+            self.front_header["line_gap_height_percent"]
+        )/100
+        return self.front_header_height-2*padding-gap
+
+    @staticmethod
+    def _font_size_for_height(font: str, height: float) -> float:
+        """Convert a desired glyph height into a size using the font's metrics."""
+        ascent, descent = getAscentDescent(font,1)
+        return height/(ascent-descent)
+
+    @staticmethod
+    def _baseline_for_row(font: str, size: float, bottom: float, top: float) -> float:
+        """Center a font's actual ascent/descent bounds within a vertical row."""
+        ascent, descent = getAscentDescent(font,size)
+        return (bottom+top-ascent-descent)/2
+
+    @staticmethod
+    def _cap_height(font: str, size: float) -> float:
+        """Return cap height for uppercase and numeric text with no descenders."""
+        face = getFont(font).face
+        return float(getattr(face,"capHeight",face.ascent))*size/1000
+
+    @classmethod
+    def _font_size_for_cap_height(cls, font: str, height: float) -> float:
+        return height/cls._cap_height(font,1)
+
+    @classmethod
+    def _baseline_for_cap_row(
+        cls, font: str, size: float, bottom: float, top: float
+    ) -> float:
+        """Center baseline-to-cap bounds in a row without descent allowance."""
+        return (bottom+top-cls._cap_height(font,size))/2
+
+    def _fit_text_to_height(
+        self, text: str, font: str, target_height: float, max_width: float,
+        minimum: float, context: str,
+    ) -> float:
+        size = self._font_size_for_height(self.fonts[font],target_height)
+        if size < minimum:
+            raise RuntimeError(
+                f"The {context} is too short for {text!r} at the minimum font size"
+            )
+        size = self._fit(text,max_width,size,minimum,font)
+        if stringWidth(text,self.fonts[font],size) > max_width:
+            raise RuntimeError(
+                f"{context.capitalize()} text {text!r} does not fit at the minimum font size"
+            )
+        return size
+
+    def _fit_cap_text_to_height(
+        self, text: str, font: str, target_height: float, max_width: float,
+        minimum: float, context: str,
+    ) -> float:
+        """Fit known uppercase/numeric text without reserving descender space."""
+        size = self._font_size_for_cap_height(self.fonts[font],target_height)
+        if size < minimum:
+            raise RuntimeError(
+                f"The {context} is too short for {text!r} at the minimum font size"
+            )
+        size = self._fit(text,max_width,size,minimum,font)
+        if stringWidth(text,self.fonts[font],size) > max_width:
+            raise RuntimeError(
+                f"{context.capitalize()} text {text!r} does not fit at the minimum font size"
+            )
+        return size
+
+    def _front_header_layout(self, card: MonsterCard) -> dict[str, float | str]:
+        """Measure the two-row header from its visible height and text percentages."""
+        header_top = self.H-self.M
+        header_width = self.W-2*self.M
+        padding_x = header_width*float(
+            self.front_header["horizontal_padding_width_percent"]
+        )/100
+        padding_y = self.front_header_height*float(
+            self.front_header["vertical_padding_height_percent"]
+        )/100
+        line_gap = self.front_header_height*float(
+            self.front_header["line_gap_height_percent"]
+        )/100
+        column_gap = header_width*float(
+            self.front_header["column_gap_width_percent"]
+        )/100
+        usable_height = self._front_header_usable_height()
+        name_row_height = usable_height*float(self.front_header["name_height_percent"])/100
+        subtitle_row_height = usable_height-name_row_height
+        subtitle_top = header_top-padding_y-name_row_height-line_gap
+        subtitle_bottom = subtitle_top-subtitle_row_height
+        name_bottom = subtitle_top+line_gap
+        name_top = header_top-padding_y
+        left = self.M+padding_x
+        right = self.W-self.M-padding_x
+        minimum = float(self.front_header["text_min_size_in"])*PT_PER_IN
+
+        cr_text = f"CR {card.cr}"
+        cr_height = usable_height*float(
+            self.front_header["challenge_rating_height_percent"]
+        )/100
+        cr_size = self._fit_text_to_height(
+            cr_text,"bold",cr_height,right-left,minimum,"front header"
+        )
+        cr_width = stringWidth(cr_text,self.fonts["bold"],cr_size)
+        name_width = right-left-cr_width-column_gap
+        if name_width <= 0:
+            raise RuntimeError("Challenge rating leaves no room for the monster name")
+        name_size = self._fit_text_to_height(
+            card.name,"black",name_row_height,name_width,
+            float(self.front_header["name_min_size_in"])*PT_PER_IN,"front header",
+        )
+        subtitle_size = self._fit_text_to_height(
+            card.subtitle,"bold",subtitle_row_height,right-left,minimum,"front header"
+        )
+        return {
+            "top": header_top,
+            "left": left,
+            "right": right,
+            "name_size": name_size,
+            "name_baseline": self._baseline_for_row(
+                self.fonts["black"],name_size,name_bottom,name_top
+            ),
+            "subtitle_size": subtitle_size,
+            "subtitle_baseline": self._baseline_for_row(
+                self.fonts["bold"],subtitle_size,subtitle_bottom,subtitle_top
+            ),
+            "cr_text": cr_text,
+            "cr_size": cr_size,
+            "cr_baseline": self._baseline_for_row(
+                self.fonts["bold"],cr_size,name_bottom,name_top
+            ),
+        }
+
     def _header(self, card: MonsterCard):
         c = self.c; assert c
-        hh = 53
-        c.setFillColor(self.TEAL); c.rect(self.M, self.H-self.M-hh, self.W-2*self.M, hh, fill=1, stroke=0)
-        name_size = self._fit(card.name, self.W-2*self.M-62, self.sizes["monster_name"], 11, "black")
-        c.setFillColor(white); c.setFont(self.fonts["black"], name_size); c.drawString(self.M+6, self.H-self.M-24, card.name)
-        c.setFont(self.fonts["bold"], self.sizes["subtype"]); c.drawString(self.M+6, self.H-self.M-42, card.subtitle)
-        c.setFont(self.fonts["bold"], self.sizes["cr"]); c.drawRightString(self.W-self.M-6, self.H-self.M-19, f"CR {card.cr}")
+        header = self._front_header_layout(card)
+        c.setFillColor(self.TEAL)
+        c.rect(
+            self.M,self.H-self.M-self.front_header_height,
+            self.W-2*self.M,self.front_header_height,fill=1,stroke=0,
+        )
+        c.setFillColor(white)
+        c.setFont(self.fonts["black"],header["name_size"])
+        c.drawString(header["left"],header["name_baseline"],card.name)
+        c.setFont(self.fonts["bold"],header["subtitle_size"])
+        c.drawString(header["left"],header["subtitle_baseline"],card.subtitle)
+        c.setFont(self.fonts["bold"],header["cr_size"])
+        c.drawRightString(header["right"],header["cr_baseline"],header["cr_text"])
+
+    def _primary_stat_width(self, kind: str) -> float:
+        return self.primary_stat_height*self.PRIMARY_STAT_ASPECT_RATIOS[kind]
+
+    def _primary_stat_text_layout(
+        self, kind: str, label: str, value: str, cx: float, top: float
+    ) -> dict[str, float]:
+        """Fit label and value text into proportional rows inside an icon."""
+        height = self.primary_stat_height
+        width = self._primary_stat_width(kind)
+        bottom = top-height
+        label_row_height = height*float(
+            self.primary_stats["label_row_height_percent"]
+        )/100
+        boundary = top-label_row_height
+        minimum = float(self.primary_stats["text_min_size_in"])*PT_PER_IN
+        text_padding = width*float(
+            self.primary_stats["text_horizontal_padding_percent"]
+        )/100
+        if kind == "speed":
+            # Keep text in the arrow's rectangular shaft rather than its point.
+            shaft_width = width*39/52
+            text_width = shaft_width-2*text_padding
+            text_center = cx-width/2+shaft_width/2
+        else:
+            text_width = width-2*text_padding
+            text_center = cx
+        label_size = self._fit_text_to_height(
+            label,"bold",height*float(self.primary_stats["label_height_percent"])/100,
+            text_width,minimum,"primary-stat icon",
+        )
+        value_size = self._fit_text_to_height(
+            str(value),"black",height*float(self.primary_stats["value_height_percent"])/100,
+            text_width,minimum,"primary-stat icon",
+        )
+        return {
+            "center": text_center,
+            "boundary": boundary,
+            "label_size": label_size,
+            "label_baseline": self._baseline_for_row(
+                self.fonts["bold"],label_size,boundary,top
+            ),
+            "value_size": value_size,
+            "value_baseline": self._baseline_for_row(
+                self.fonts["black"],value_size,bottom,boundary
+            ),
+        }
+
+    def _draw_primary_stat_text(self, kind, label, value, cx, top):
+        text = self._primary_stat_text_layout(kind,label,str(value),cx,top)
+        self._center(
+            label,text["center"],text["label_baseline"],
+            size=text["label_size"],
+        )
+        self._center(
+            value,text["center"],text["value_baseline"],font="black",
+            size=text["value_size"],
+        )
 
     def _shield_ac(self, cx, top, value):
         c = self.c; assert c
-        w, h = 46, 42; x, y = cx-w/2, top-h
-        p = c.beginPath(); p.moveTo(x,y+h); p.lineTo(x+w,y+h); p.lineTo(x+w-7,y); p.lineTo(x+7,y); p.close()
-        c.setStrokeColor(self.TEAL); c.setLineWidth(1); c.drawPath(p, stroke=1, fill=0)
-        self._center("AC", cx, y+h-12, size=self.sizes["dashboard_label"])
-        self._center(value, cx, y+8, font="black", size=self.sizes["dashboard_value"])
+        h = self.primary_stat_height; w = self._primary_stat_width("ac")
+        scale = h/self.PRIMARY_STAT_REFERENCE_HEIGHT; x, y = cx-w/2, top-h
+        p = c.beginPath(); p.moveTo(x,y+h); p.lineTo(x+w,y+h)
+        p.lineTo(x+w-7*scale,y); p.lineTo(x+7*scale,y); p.close()
+        c.setStrokeColor(self.TEAL); c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN); c.drawPath(p, stroke=1, fill=0)
+        self._draw_primary_stat_text("ac","AC",value,cx,top)
 
     def _box_hp(self, cx, top, value):
         c = self.c; assert c
-        w, h = 43, 42; x, y = cx-w/2, top-h
+        h = self.primary_stat_height; w = self._primary_stat_width("hp")
+        scale = h/self.PRIMARY_STAT_REFERENCE_HEIGHT; x, y = cx-w/2, top-h
         p = c.beginPath();
-        p.moveTo(x+7,y+h); p.lineTo(x+w-7,y+h); p.lineTo(x+w-7,y+h-6); p.lineTo(x+w,y+h-6)
-        p.lineTo(x+w,y+6); p.lineTo(x+w-7,y+6); p.lineTo(x+w-7,y); p.lineTo(x+7,y); p.lineTo(x+7,y+6)
-        p.lineTo(x,y+6); p.lineTo(x,y+h-6); p.lineTo(x+7,y+h-6); p.close()
-        c.setStrokeColor(self.TEAL); c.setLineWidth(1); c.drawPath(p, stroke=1, fill=0)
-        self._center("HP", cx, y+h-12, size=self.sizes["dashboard_label"])
-        self._center(value, cx, y+8, font="black", size=self.sizes["dashboard_value"])
+        p.moveTo(x+7*scale,y+h); p.lineTo(x+w-7*scale,y+h); p.lineTo(x+w-7*scale,y+h-6*scale); p.lineTo(x+w,y+h-6*scale)
+        p.lineTo(x+w,y+6*scale); p.lineTo(x+w-7*scale,y+6*scale); p.lineTo(x+w-7*scale,y); p.lineTo(x+7*scale,y); p.lineTo(x+7*scale,y+6*scale)
+        p.lineTo(x,y+6*scale); p.lineTo(x,y+h-6*scale); p.lineTo(x+7*scale,y+h-6*scale); p.close()
+        c.setStrokeColor(self.TEAL); c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN); c.drawPath(p, stroke=1, fill=0)
+        self._draw_primary_stat_text("hp","HP",value,cx,top)
 
     def _arrow_speed(self, cx, top, value):
         c = self.c; assert c
-        w, h = 52, 42; x, y = cx-w/2, top-h
-        p = c.beginPath(); p.moveTo(x,y); p.lineTo(x+39,y); p.lineTo(x+39,y+8); p.lineTo(x+w,y+h/2)
-        p.lineTo(x+39,y+h-8); p.lineTo(x+39,y+h); p.lineTo(x,y+h); p.close()
-        c.setStrokeColor(self.TEAL); c.setLineWidth(1); c.drawPath(p, stroke=1, fill=0)
-        self._center("SPEED", x+23, y+h-12, size=7.5)
-        self._center(value, x+23, y+8, font="black", size=self.sizes["dashboard_value"]-1)
+        h = self.primary_stat_height; w = self._primary_stat_width("speed")
+        scale = h/self.PRIMARY_STAT_REFERENCE_HEIGHT; x, y = cx-w/2, top-h
+        p = c.beginPath(); p.moveTo(x,y); p.lineTo(x+39*scale,y); p.lineTo(x+39*scale,y+8*scale); p.lineTo(x+w,y+h/2)
+        p.lineTo(x+39*scale,y+h-8*scale); p.lineTo(x+39*scale,y+h); p.lineTo(x,y+h); p.close()
+        c.setStrokeColor(self.TEAL); c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN); c.drawPath(p, stroke=1, fill=0)
+        self._draw_primary_stat_text("speed","SPEED",value,cx,top)
 
     def _circle_pp(self, cx, top, value):
         c = self.c; assert c
-        r = 21; y = top-r
-        c.setStrokeColor(self.TEAL); c.setLineWidth(1); c.circle(cx,y,r,stroke=1,fill=0)
-        self._line(cx-r,y+6,cx+r,y+6,width=.7,color=self.TEAL)
-        self._center("PP",cx,y+10,size=7.5); self._center(value,cx,y-r+7,font="black",size=self.sizes["dashboard_value"]-1)
+        h = self.primary_stat_height; r = h/2; y = top-r
+        text = self._primary_stat_text_layout("pp","PP",str(value),cx,top)
+        c.setStrokeColor(self.TEAL); c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN); c.circle(cx,y,r,stroke=1,fill=0)
+        self._line(
+            cx-r,text["boundary"],cx+r,text["boundary"],
+            width=float(self.primary_stats["divider_line_width_in"])*PT_PER_IN,
+            color=self.TEAL,
+        )
+        self._draw_primary_stat_text("pp","PP",value,cx,top)
 
     def _dashboard(self, card: MonsterCard):
-        top = self.H-self.M-58
+        top = self._dashboard_top()
         # AC and PP have matching frame insets; HP and Speed divide the span evenly.
-        dashboard_inset = 26
+        dashboard_inset = (self.W-2*self.M)*float(
+            self.primary_stats["horizontal_inset_width_percent"]
+        )/100
         dashboard_span = self.W-2*self.M-2*dashboard_inset
         xs = [self.M+dashboard_inset+i*dashboard_span/3 for i in range(4)]
+        kinds = ("ac","hp","speed","pp")
+        widths = [self._primary_stat_width(kind) for kind in kinds]
+        bounds = [(x-width/2,x+width/2) for x,width in zip(xs,widths)]
+        if bounds[0][0] < self.M or bounds[-1][1] > self.W-self.M or any(
+            right > next_left for (_,right),(next_left,_) in zip(bounds,bounds[1:])
+        ):
+            raise RuntimeError("Primary-stat icons do not fit across the printable card width")
         self._shield_ac(xs[0],top,card.ac); self._box_hp(xs[1],top,card.hp); self._arrow_speed(xs[2],top,card.speed); self._circle_pp(xs[3],top,card.passive_perception)
 
         # Modifiers are deliberately large; raw scores are supporting information
         # beneath them. There are intentionally no "MODIFIERS" / "Raw Scores" labels.
-        y1 = self.H-self.M-116
-        ability_inset = 24
-        ability_span = self.W-2*self.M-2*ability_inset
-        ax = [self.M+ability_inset+i*ability_span/5 for i in range(6)]
-        for x, abbr in zip(ax, ABILITIES):
-            ability = card.abilities[abbr]
-            self._center(abbr, x, y1, font="bold", size=self.sizes["ability_label"])
-            self._center(signed(ability.modifier), x, y1-19, font="black", size=self.sizes["ability_modifier"])
-            self._center(str(ability.score), x, y1-37, font="regular", size=self.sizes["ability_score"], color=self.MID)
-        return y1-48
+        ability_top = top-self.primary_stat_height
+        for index, abbr in enumerate(ABILITIES):
+            self._draw_ability(index,abbr,card.abilities[abbr],ability_top)
+        return ability_top-self.ability_band_height
+
+    def _ability_usable_height(self) -> float:
+        padding = self.ability_band_height*float(
+            self.abilities["vertical_padding_height_percent"]
+        )/100
+        gap = self.ability_band_height*float(
+            self.abilities["row_gap_height_percent"]
+        )/100
+        return self.ability_band_height-2*padding-2*gap
+
+    def _ability_column_bounds(self, index: int) -> tuple[float,float]:
+        """Return one of six equal columns across the printable card width."""
+        column_width = (self.W-2*self.M)/len(ABILITIES)
+        left = self.M+index*column_width
+        return left,left+column_width
+
+    def _ability_layout(self, index: int, abbr: str, ability, top: float) -> dict[str,float]:
+        """Measure one ability using the shared three-row vertical proportions."""
+        left,right = self._ability_column_bounds(index)
+        width = right-left
+        padding_y = self.ability_band_height*float(
+            self.abilities["vertical_padding_height_percent"]
+        )/100
+        gap = self.ability_band_height*float(
+            self.abilities["row_gap_height_percent"]
+        )/100
+        usable_height = self._ability_usable_height()
+        modifier_height = usable_height*float(
+            self.abilities["modifier_height_percent"]
+        )/100
+        outer_height = (usable_height-modifier_height)/2
+
+        label_top = top-padding_y
+        label_bottom = label_top-outer_height
+        modifier_top = label_bottom-gap
+        modifier_bottom = modifier_top-modifier_height
+        score_top = modifier_bottom-gap
+        score_bottom = score_top-outer_height
+        text_padding = width*float(
+            self.abilities["text_horizontal_padding_percent"]
+        )/100
+        text_width = width-2*text_padding
+        minimum = float(self.abilities["text_min_size_in"])*PT_PER_IN
+        modifier = signed(ability.modifier)
+        score = str(ability.score)
+        label_size = self._fit_cap_text_to_height(
+            abbr,"bold",outer_height,text_width,minimum,"ability band"
+        )
+        modifier_size = self._fit_cap_text_to_height(
+            modifier,"black",modifier_height,text_width,minimum,"ability band"
+        )
+        score_size = self._fit_cap_text_to_height(
+            score,"regular",outer_height,text_width,minimum,"ability band"
+        )
+        return {
+            "left": left,
+            "right": right,
+            "center": (left+right)/2,
+            "label_size": label_size,
+            "label_baseline": self._baseline_for_cap_row(
+                self.fonts["bold"],label_size,label_bottom,label_top
+            ),
+            "modifier_size": modifier_size,
+            "modifier_baseline": self._baseline_for_cap_row(
+                self.fonts["black"],modifier_size,modifier_bottom,modifier_top
+            ),
+            "score_size": score_size,
+            "score_baseline": self._baseline_for_cap_row(
+                self.fonts["regular"],score_size,score_bottom,score_top
+            ),
+        }
+
+    def _draw_ability(self, index: int, abbr: str, ability, top: float) -> None:
+        layout = self._ability_layout(index,abbr,ability,top)
+        center = layout["center"]
+        self._center(
+            abbr,center,layout["label_baseline"],font="bold",size=layout["label_size"]
+        )
+        self._center(
+            signed(ability.modifier),center,layout["modifier_baseline"],
+            font="black",size=layout["modifier_size"],
+        )
+        self._center(
+            str(ability.score),center,layout["score_baseline"],font="regular",
+            size=layout["score_size"],color=self.MID,
+        )
+
+    def _dashboard_top(self) -> float:
+        return (
+            self.H-self.M-self.front_header_height
+            -self.primary_stat_height
+            *float(self.primary_stats["top_gap_height_percent"])/100
+        )
+
+    def _dashboard_bottom(self) -> float:
+        """Bottom of the dashboard, derived from its header-relative top."""
+        return self._dashboard_top()-self.primary_stat_height-self.ability_band_height
 
     def _facts(self, y, facts: list[str]):
         if not facts:
@@ -255,7 +613,7 @@ class CardRenderer:
         return yy-4
 
     def _front_block_top(self, card: MonsterCard) -> float:
-        y = self.H-self.M-164
+        y = self._dashboard_bottom()
         if card.quick_facts:
             y -= 23
         return y-7

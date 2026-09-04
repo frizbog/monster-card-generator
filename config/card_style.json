@@ -5,6 +5,37 @@
   "card_height_in": 5.3125,
   "margin_pt": 18,
   "layout": {
+    "front_header": {
+      "height_in": 0.75,
+      "horizontal_padding_width_percent": 2.4,
+      "vertical_padding_height_percent": 9.25,
+      "line_gap_height_percent": 1.85,
+      "column_gap_width_percent": 3.15,
+      "name_height_percent": 60,
+      "challenge_rating_height_percent": 30,
+      "name_min_size_in": 0.15,
+      "text_min_size_in": 0.07
+    },
+    "primary_stats": {
+      "icon_height_in": 0.5,
+      "top_gap_height_percent": 15,
+      "horizontal_inset_width_percent": 10.1364522417,
+      "label_row_height_percent": 40,
+      "label_height_percent": 26,
+      "value_height_percent": 52,
+      "text_horizontal_padding_percent": 10,
+      "line_width_in": 0.015,
+      "divider_line_width_in": 0.01,
+      "text_min_size_in": 0.07
+    },
+    "abilities": {
+      "band_height_in": 0.6,
+      "vertical_padding_height_percent": 20,
+      "row_gap_height_percent": 6,
+      "modifier_height_percent": 45,
+      "text_horizontal_padding_percent": 8,
+      "text_min_size_in": 0.07
+    },
     "trim_guide_width_pt": 0.7,
     "discard_hatch_spacing_pt": 7,
     "discard_hatch_line_width_pt": 0.45,
@@ -31,14 +62,6 @@
     "label_weight": "bold"
   },
   "sizes": {
-    "monster_name": 19,
-    "subtype": 9,
-    "cr": 10,
-    "dashboard_label": 8,
-    "dashboard_value": 16,
-    "ability_label": 6.8,
-    "ability_modifier": 16,
-    "ability_score": 7.2,
     "quick_facts": 8.5,
     "body": 8.5,
     "edge_label_max": 24.0,
