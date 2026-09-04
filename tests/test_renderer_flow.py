@@ -57,12 +57,23 @@ def _measurement_renderer() -> CardRenderer:
             "text_horizontal_padding_percent": 8,
             "text_min_size_in": 5/72,
         },
-        "back_edge_band_in": 0.375,
-        "back_frame_line_width_pt": 0.8,
-        "back_text_top_padding_em": 1.0,
-        "back_text_bottom_padding_pt": 8,
-        "back_source_note_clearance_pt": 6,
-        "back_source_note_leading_pt": 5.5,
+        "quick_facts": {
+            "band_height_in": .3,
+            "text_height_percent": 55,
+            "horizontal_padding_width_percent": 5/printable_width*100,
+            "line_width_in": .8/72,
+            "text_min_size_in": 5.8/72,
+        },
+        "back": {
+            "edge_band_in": 0.375,
+            "frame_line_width_pt": 0.8,
+            "body_horizontal_padding_width_percent": 11/(renderer.W-2*27)*100,
+            "source_note_horizontal_padding_width_percent": 10/(renderer.W-2*27)*100,
+            "text_top_padding_line_percent": 8.5/(8.5*1.34)*100,
+            "text_bottom_padding_line_percent": 8/(8.5*1.34)*100,
+            "source_note_clearance_line_percent": 6/(8.5*1.34)*100,
+            "source_note_line_height_percent": 5.5/4.7*100,
+        },
     }
     renderer.front_header = renderer.layout["front_header"]
     renderer.front_header_height = .75*72
@@ -70,6 +81,9 @@ def _measurement_renderer() -> CardRenderer:
     renderer.primary_stat_height = 42
     renderer.abilities = renderer.layout["abilities"]
     renderer.ability_band_height = 64
+    renderer.quick_facts = renderer.layout["quick_facts"]
+    renderer.quick_facts_band_height = .3*72
+    renderer.back = renderer.layout["back"]
     renderer.back_edge_band = 27
     renderer.sheet = SheetLayout(
         page_width=renderer.PAGE_W,
@@ -82,6 +96,18 @@ def _measurement_renderer() -> CardRenderer:
 
 
 class RendererFlowTests(unittest.TestCase):
+    def test_quick_facts_band_uses_physical_height_and_proportional_text(self):
+        renderer = _measurement_renderer()
+        target_height = renderer.quick_facts_band_height*.55
+        size = renderer._fit_text_to_height(
+            "Init +2 · Speed 30′","black",target_height,
+            renderer.W-2*renderer.M-10,5.8,"quick-facts band",
+        )
+        ascent,descent = getAscentDescent(renderer.fonts["black"],size)
+
+        self.assertAlmostEqual(renderer.quick_facts_band_height,.3*72)
+        self.assertAlmostEqual(ascent-descent,target_height)
+
     def test_front_header_height_percentages_control_text_and_dashboard(self):
         renderer = _measurement_renderer()
         card = SimpleNamespace(name="Ogre",subtitle="Large giant, chaotic evil",cr="2")
@@ -187,11 +213,14 @@ class RendererFlowTests(unittest.TestCase):
         renderer = _measurement_renderer()
         self.assertEqual(renderer._back_text_width(), renderer.W - 2*27 - 22)
         self.assertEqual(renderer._back_text_start(8.5), renderer.H - 27 - 8.5)
+        self.assertAlmostEqual(renderer._back_body_horizontal_padding(),11)
+        self.assertAlmostEqual(renderer._back_source_note_horizontal_padding(),10)
+        self.assertAlmostEqual(renderer._back_source_note_leading(),5.5)
         size = renderer._back_edge_label_size("EDGE")
         ascent, descent = getAscentDescent(renderer.fonts["bold"], size)
         self.assertLessEqual(
             ascent-descent,
-            renderer.back_edge_band-renderer.M-renderer.layout["back_frame_line_width_pt"]/2,
+            renderer.back_edge_band-renderer.M-renderer.back["frame_line_width_pt"]/2,
         )
         renderer.back_edge_band = 54
         self.assertGreater(renderer._back_edge_label_size("EDGE"), size)

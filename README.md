@@ -293,6 +293,20 @@ uppercase labels, signs, and digits—no descenders need to be reserved. The
 printable width between the artwork insets is always divided into six equal
 columns, independent of the band height.
 
+The quick-facts strip uses `layout.quick_facts.band_height_in`; its text height
+and horizontal padding are percentages of the strip height and printable width.
+The default 0.30-inch strip has slightly less vertical whitespace than the
+original fixed-height strip. Facts that cannot fit at the configured minimum
+text size continue to move into labeled rule blocks.
+
+Back-face layout settings are collected under `layout.back`, including its edge
+band, frame line, text padding, and source-note spacing.
+Vertical spacing uses percentages of the current body line height, while the
+source note's line height is a percentage of its own font size. Horizontal body
+and source-note padding use percentages of the back frame's inner width, keeping
+them independent of the derived font sizes. Physical frame-line width remains
+in points.
+
 As a general style convention for these responsive bands, absolute physical
 measurements use inches while internal geometry uses percentages of the named
 height or width. Point values remain elsewhere where that migration has not yet

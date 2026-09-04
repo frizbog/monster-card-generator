@@ -36,15 +36,26 @@
       "text_horizontal_padding_percent": 8,
       "text_min_size_in": 0.07
     },
+    "quick_facts": {
+      "band_height_in": 0.3,
+      "text_height_percent": 55,
+      "horizontal_padding_width_percent": 2,
+      "line_width_in": 0.011,
+      "text_min_size_in": 0.08
+    },
     "trim_guide_width_pt": 0.7,
     "discard_hatch_spacing_pt": 7,
     "discard_hatch_line_width_pt": 0.45,
-    "back_edge_band_in": 0.4,
-    "back_frame_line_width_pt": 0.8,
-    "back_text_top_padding_em": 1.0,
-    "back_text_bottom_padding_pt": 8,
-    "back_source_note_clearance_pt": 6,
-    "back_source_note_leading_pt": 5.5
+    "back": {
+      "edge_band_in": 0.4,
+      "frame_line_width_pt": 0.8,
+      "body_horizontal_padding_width_percent": 4.7,
+      "source_note_horizontal_padding_width_percent": 4.2,
+      "text_top_padding_line_percent": 75,
+      "text_bottom_padding_line_percent": 70,
+      "source_note_clearance_line_percent": 53,
+      "source_note_line_height_percent": 117
+    }
   },
   "colors": {
     "teal": "#17657f",
@@ -62,7 +73,6 @@
     "label_weight": "bold"
   },
   "sizes": {
-    "quick_facts": 8.5,
     "body": 8.5,
     "edge_label_max": 24.0,
     "edge_label_min": 5.0,

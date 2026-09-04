@@ -27,6 +27,7 @@ class CardRenderer:
     # These are intrinsic properties of the four vector shapes. Their configured
     # height may change, but their width-to-height proportions never do.
     PRIMARY_STAT_REFERENCE_HEIGHT = 42
+    BODY_LINE_HEIGHT_MULTIPLIER = 1.34
     PRIMARY_STAT_ASPECT_RATIOS = {
         "ac": 46/PRIMARY_STAT_REFERENCE_HEIGHT,
         "hp": 43/PRIMARY_STAT_REFERENCE_HEIGHT,
@@ -86,9 +87,24 @@ class CardRenderer:
             )
         if self._ability_usable_height() <= 0:
             raise ValueError("layout.abilities padding and gaps must leave usable height")
-        self.back_edge_band = float(self.layout["back_edge_band_in"]) * PT_PER_IN
+        self.quick_facts = self.layout["quick_facts"]
+        self.quick_facts_band_height = float(self.quick_facts["band_height_in"]) * PT_PER_IN
+        if self.quick_facts_band_height <= 0:
+            raise ValueError("layout.quick_facts.band_height_in must be positive")
+        quick_facts_text_percent = float(self.quick_facts["text_height_percent"])
+        if not 0 < quick_facts_text_percent <= 100:
+            raise ValueError(
+                "layout.quick_facts.text_height_percent must be between 0 and 100"
+            )
+        quick_facts_padding = float(self.quick_facts["horizontal_padding_width_percent"])
+        if not 0 <= quick_facts_padding < 50:
+            raise ValueError(
+                "layout.quick_facts.horizontal_padding_width_percent must be between 0 and 50"
+            )
+        self.back = self.layout["back"]
+        self.back_edge_band = float(self.back["edge_band_in"]) * PT_PER_IN
         if self.back_edge_band <= self.M:
-            raise ValueError("layout.back_edge_band_in must exceed margin_pt / 72")
+            raise ValueError("layout.back.edge_band_in must exceed margin_pt / 72")
         colors = self.style["colors"]
         self.TEAL = HexColor(colors["teal"])
         self.DARK = HexColor(colors["dark"])
@@ -570,11 +586,23 @@ class CardRenderer:
         if not facts:
             return y
         text = " · ".join(facts)
-        h = 23
-        self._line(self.M,y,self.W-self.M,y,width=.8); self._line(self.M,y-h,self.W-self.M,y-h,width=.8)
-        size = self._fit(text,self.W-2*self.M-10,self.sizes["quick_facts"],5.8,"black")
-        self._center(text,self.W/2,y-15,font="black",size=size,color=self.MID)
-        return y-h
+        height = self.quick_facts_band_height
+        width = self.W-2*self.M
+        horizontal_padding = width*float(
+            self.quick_facts["horizontal_padding_width_percent"]
+        )/100
+        text_width = width-2*horizontal_padding
+        minimum = float(self.quick_facts["text_min_size_in"])*PT_PER_IN
+        size = self._fit_text_to_height(
+            text,"black",height*float(self.quick_facts["text_height_percent"])/100,
+            text_width,minimum,"quick-facts band",
+        )
+        line_width = float(self.quick_facts["line_width_in"])*PT_PER_IN
+        self._line(self.M,y,self.W-self.M,y,width=line_width)
+        self._line(self.M,y-height,self.W-self.M,y-height,width=line_width)
+        baseline = self._baseline_for_row(self.fonts["black"],size,y-height,y)
+        self._center(text,self.W/2,baseline,font="black",size=size,color=self.MID)
+        return y-height
 
     def _block_layout(self, block: RuleBlock):
         """Wrap a front rule block, reserving first-line space for its bold title."""
@@ -615,21 +643,53 @@ class CardRenderer:
     def _front_block_top(self, card: MonsterCard) -> float:
         y = self._dashboard_bottom()
         if card.quick_facts:
-            y -= 23
+            y -= self.quick_facts_band_height
         return y-7
 
+    def _back_body_leading(self, body_size: float) -> float:
+        return body_size*self.BODY_LINE_HEIGHT_MULTIPLIER
+
+    def _back_frame_width(self) -> float:
+        return self.W-2*self.back_edge_band
+
+    def _back_body_horizontal_padding(self) -> float:
+        return (
+            self._back_frame_width()
+            *float(self.back["body_horizontal_padding_width_percent"])/100
+        )
+
+    def _back_source_note_leading(self) -> float:
+        return (
+            float(self.sizes["source_note"])
+            *float(self.back["source_note_line_height_percent"])/100
+        )
+
+    def _back_source_note_horizontal_padding(self) -> float:
+        return (
+            self._back_frame_width()
+            *float(self.back["source_note_horizontal_padding_width_percent"])/100
+        )
+
     def _back_text_width(self) -> float:
-        """Return usable width inside the back frame after its text padding."""
-        return self.W - 2*self.back_edge_band - 22
+        """Return back body width after frame-relative horizontal padding."""
+        return self._back_frame_width()-2*self._back_body_horizontal_padding()
+
+    def _back_source_note_width(self) -> float:
+        return (
+            self._back_frame_width()-2*self._back_source_note_horizontal_padding()
+        )
 
     def _back_text_start(self, body_size: float) -> float:
         """Anchor back text below the inset frame by a body-text-relative gap."""
-        padding = float(self.layout["back_text_top_padding_em"]) * body_size
+        padding = (
+            self._back_body_leading(body_size)
+            *float(self.back["text_top_padding_line_percent"])/100
+        )
         return self.H-self.back_edge_band-padding
 
     def _back_edge_label_size(self, edge: str) -> float:
         """Fit an edge label inside both the physical band and its long-side span."""
-        band_capacity = self.back_edge_band-self.M-float(self.layout["back_frame_line_width_pt"])/2
+        band_capacity = self.back_edge_band-self.M-float(self.back["frame_line_width_pt"])/2
         minimum = float(self.sizes["edge_label_min"])
         if band_capacity < minimum:
             raise RuntimeError(
@@ -655,22 +715,32 @@ class CardRenderer:
         """Center the actual glyph bounds in the safe portion of the edge band."""
         ascent, descent = getAscentDescent(self.fonts["bold"], size)
         label_floor = self.M
-        label_ceiling = self.back_edge_band-float(self.layout["back_frame_line_width_pt"])/2
+        label_ceiling = self.back_edge_band-float(self.back["frame_line_width_pt"])/2
         return (label_floor+label_ceiling-ascent-descent)/2
 
-    def _back_text_floor(self, card: MonsterCard) -> float:
-        bottom_padding = float(self.layout["back_text_bottom_padding_pt"])
+    def _back_text_floor(self, card: MonsterCard, body_size: float | None = None) -> float:
+        size = float(self.sizes["body"] if body_size is None else body_size)
+        bottom_padding = (
+            self._back_body_leading(size)
+            *float(self.back["text_bottom_padding_line_percent"])/100
+        )
         if not card.source_note:
             return self.back_edge_band+bottom_padding
         note_size = self.sizes["source_note"]
-        note_leading = float(self.layout["back_source_note_leading_pt"])
-        lines = simpleSplit(card.source_note,self.fonts["regular"],note_size,self._back_text_width()+2)
+        note_leading = self._back_source_note_leading()
+        lines = simpleSplit(
+            card.source_note,self.fonts["regular"],note_size,self._back_source_note_width()
+        )
         top_baseline = self.back_edge_band+bottom_padding+note_leading*(len(lines)-1)
-        return top_baseline+float(self.layout["back_source_note_clearance_pt"])
+        clearance = (
+            self._back_body_leading(size)
+            *float(self.back["source_note_clearance_line_percent"])/100
+        )
+        return top_baseline+clearance
 
     def _back_block_height(self, block: RuleBlock, size: float | None = None) -> float:
         size = float(self.sizes["body"] if size is None else size)
-        leading = size*1.34
+        leading = self._back_body_leading(size)
         if block.meta:
             lines = simpleSplit(block.text,self.fonts["regular"],size,self._back_text_width())
             return 27 + len(lines)*leading
@@ -709,7 +779,7 @@ class CardRenderer:
 
     def _back_fit(self, card: MonsterCard, size: float):
         y = self._back_text_start(size)
-        floor = self._back_text_floor(card)
+        floor = self._back_text_floor(card,size)
         for block in card.overflow:
             next_y = y-self._back_block_height(block,size)
             if next_y < floor:
@@ -739,8 +809,12 @@ class CardRenderer:
 
         facts = list(card.quick_facts)
         moved: list[str] = []
-        max_width = self.W-2*self.M-10
-        minimum_size = 5.8
+        width = self.W-2*self.M
+        horizontal_padding = width*float(
+            self.quick_facts["horizontal_padding_width_percent"]
+        )/100
+        max_width = width-2*horizontal_padding
+        minimum_size = float(self.quick_facts["text_min_size_in"])*PT_PER_IN
         while facts:
             text = " · ".join(facts)
             if stringWidth(text,self.fonts["black"],minimum_size) <= max_width:
@@ -840,10 +914,11 @@ class CardRenderer:
     def _draw_back(self, card: MonsterCard):
         c = self.c; assert c
         body_size = self._back_size_for(card)
-        body_leading = body_size*1.34
+        body_leading = self._back_body_leading(body_size)
+        body_padding = self._back_body_horizontal_padding()
         top=self.H-self.back_edge_band; bot=self.back_edge_band
         left=self.back_edge_band; right=self.W-self.back_edge_band
-        c.setStrokeColor(self.GRID); c.setLineWidth(float(self.layout["back_frame_line_width_pt"])); c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
+        c.setStrokeColor(self.GRID); c.setLineWidth(float(self.back["frame_line_width_pt"])); c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
         edge=f"{card.name.upper()} · CR {card.cr}"
         # Font ascenders extend above a baseline, so center the glyph metrics—not
         # the baseline itself—in the usable band between margin and inner frame.
@@ -862,39 +937,48 @@ class CardRenderer:
             first_baseline = y-8 if block.meta else y-4
             if previous_baseline is not None:
                 divider_y = self._back_divider_y(previous_baseline,first_baseline)
-                self._line(left+10,divider_y,right-10,divider_y,width=.45,color=self.DIVIDER)
+                self._line(
+                    left+body_padding,divider_y,right-body_padding,divider_y,
+                    width=.45,color=self.DIVIDER,
+                )
             if block.meta:
                 c.setFillColor(self.DARK); c.setFont(self.fonts["bold"],body_size)
-                c.drawString(left+11,y-8,block.title)
-                c.setFont(self.fonts["bold"],6.4); c.setFillColor(self.MID); c.drawRightString(right-11,y-8,block.meta)
+                c.drawString(left+body_padding,y-8,block.title)
+                c.setFont(self.fonts["bold"],6.4); c.setFillColor(self.MID); c.drawRightString(right-body_padding,y-8,block.meta)
                 yy=y-21; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],body_size)
                 last_baseline = y-8
-                for ln in simpleSplit(block.text,self.fonts["regular"],body_size,(right-left)-22):
-                    c.drawString(left+11,yy,ln); last_baseline=yy; yy-=body_leading
+                for ln in simpleSplit(block.text,self.fonts["regular"],body_size,self._back_text_width()):
+                    c.drawString(left+body_padding,yy,ln); last_baseline=yy; yy-=body_leading
                 y=yy-6
             else:
                 title_lines, titlew, lines, inline = self._back_inline_layout(block,body_size)
                 yy=y-4; c.setFillColor(self.DARK)
                 last_baseline = yy
                 if inline:
-                    c.setFont(self.fonts["bold"],body_size); c.drawString(left+11,yy,block.title)
+                    c.setFont(self.fonts["bold"],body_size); c.drawString(left+body_padding,yy,block.title)
                     c.setFont(self.fonts["regular"],body_size)
                     for text, is_first in lines:
-                        c.drawString(left+11+titlew if is_first else left+11,yy,text); last_baseline=yy; yy-=body_leading
+                        c.drawString(left+body_padding+titlew if is_first else left+body_padding,yy,text); last_baseline=yy; yy-=body_leading
                 else:
                     c.setFont(self.fonts["bold"],body_size)
                     for title_line in title_lines:
-                        c.drawString(left+11,yy,title_line); last_baseline=yy; yy-=body_leading
+                        c.drawString(left+body_padding,yy,title_line); last_baseline=yy; yy-=body_leading
                     c.setFont(self.fonts["regular"],body_size)
                     for text, _ in lines:
-                        c.drawString(left+11,yy,text); last_baseline=yy; yy-=body_leading
+                        c.drawString(left+body_padding,yy,text); last_baseline=yy; yy-=body_leading
                 y=yy-1
             previous_baseline = last_baseline
         if card.source_note:
             note_size = self.sizes["source_note"]
-            note_leading = float(self.layout["back_source_note_leading_pt"])
+            note_leading = self._back_source_note_leading()
             c.setFillColor(self.GRAY); c.setFont(self.fonts["regular"],note_size)
-            lines=simpleSplit(card.source_note,self.fonts["regular"],note_size,self._back_text_width()+2)
-            yy=bot+float(self.layout["back_text_bottom_padding_pt"])+note_leading*(len(lines)-1)
+            lines=simpleSplit(
+                card.source_note,self.fonts["regular"],note_size,self._back_source_note_width()
+            )
+            bottom_padding = (
+                self._back_body_leading(body_size)
+                *float(self.back["text_bottom_padding_line_percent"])/100
+            )
+            yy=bot+bottom_padding+note_leading*(len(lines)-1)
             for ln in lines:
                 c.drawCentredString(self.W/2,yy,ln); yy-=note_leading
