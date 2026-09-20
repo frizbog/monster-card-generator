@@ -123,9 +123,14 @@ class CardRenderer:
             raise ValueError(f"colors.{name} must be #rrggbb or none")
         return HexColor(value)
 
+    @staticmethod
+    def _ordered_cards(cards: Iterable[MonsterCard]) -> list[MonsterCard]:
+        """Return cards in stable, case-insensitive name order for PDF output."""
+        return sorted(cards,key=lambda card: (card.name.casefold(),card.name))
+
     def render(self, cards: Iterable[MonsterCard], output: str | Path) -> Path:
         """Measure all text, then place up to two complete spreads on each sheet."""
-        cards = list(cards)
+        cards = self._ordered_cards(cards)
         # Text flow mutates a card into front blocks and back overflow before any
         # ink is drawn. That avoids silent clipping caused by draw-as-you-go code.
         for card in cards:

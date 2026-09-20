@@ -97,6 +97,21 @@ def _measurement_renderer() -> CardRenderer:
 
 
 class RendererFlowTests(unittest.TestCase):
+    def test_renderer_orders_multiple_cards_alphabetically_by_name(self):
+        cards = [
+            SimpleNamespace(name="Zombie"),
+            SimpleNamespace(name="acolyte"),
+            SimpleNamespace(name="Bandit"),
+            SimpleNamespace(name="Acolyte"),
+        ]
+
+        ordered = CardRenderer._ordered_cards(cards)
+
+        self.assertEqual(
+            [card.name for card in ordered],
+            ["Acolyte","acolyte","Bandit","Zombie"],
+        )
+
     def test_color_configuration_is_semantic_and_accepts_none(self):
         root = Path(__file__).resolve().parents[1]
         style_path = root / "config" / "card_style.json"
