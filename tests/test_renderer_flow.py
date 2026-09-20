@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -96,6 +97,40 @@ def _measurement_renderer() -> CardRenderer:
 
 
 class RendererFlowTests(unittest.TestCase):
+    def test_color_configuration_is_semantic_and_accepts_none(self):
+        root = Path(__file__).resolve().parents[1]
+        style_path = root / "config" / "card_style.json"
+        style = json.loads(style_path.read_text(encoding="utf-8"))
+
+        self.assertNotIn("teal",style["colors"])
+        self.assertNotIn("dark",style["colors"])
+        self.assertEqual(style["colors"]["header_band_background"],"#17657f")
+        self.assertEqual(style["colors"]["icon_border"],"#17657f")
+        self.assertEqual(style["colors"]["header_band_text"],"#ffffff")
+        self.assertIsNone(CardRenderer(style_path).colors["icon_background"])
+
+    def test_every_color_role_can_be_none_when_rendering(self):
+        root = Path(__file__).resolve().parents[1]
+        style = json.loads(
+            (root / "config" / "card_style.json").read_text(encoding="utf-8")
+        )
+        style["colors"] = {name: "none" for name in style["colors"]}
+        cards = load_manual_cards(root / "examples" / "manual_monsters.json")[:1]
+
+        with TemporaryDirectory() as directory:
+            style_path = Path(directory) / "style.json"
+            output = Path(directory) / "cards.pdf"
+            style_path.write_text(json.dumps(style),encoding="utf-8")
+            CardRenderer(style_path).render(cards,output)
+
+            self.assertTrue(output.read_bytes().startswith(b"%PDF"))
+
+    def test_color_configuration_rejects_non_hex_values(self):
+        with self.assertRaisesRegex(
+            ValueError,r"colors\.header_band_text must be #rrggbb or none"
+        ):
+            CardRenderer._parse_color("header_band_text","white")
+
     def test_quick_facts_band_uses_physical_height_and_proportional_text(self):
         renderer = _measurement_renderer()
         target_height = renderer.quick_facts_band_height*.55

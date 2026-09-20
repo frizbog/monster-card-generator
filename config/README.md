@@ -44,7 +44,7 @@ the front and back faces.
 
 ### `layout.front_header`
 
-Controls the teal band at the top of the card front.
+Controls the header band at the top of the card front.
 
 - `height_in`: physical height of the complete header band.
 - `horizontal_padding_width_percent`: left and right padding, each measured as
@@ -172,15 +172,34 @@ content still cannot fit, rendering ends with a clear overflow error.
 
 ## `colors`
 
-All colors are hexadecimal RGB strings.
+Each value is either a hexadecimal RGB string (`#rrggbb`) or `none`. Setting a
+value to `none` makes that fill, stroke, or text transparent. Color properties
+are named for the one visual role they control, so changing one does not
+recolor an unrelated part of the card.
 
-- `teal`: front header fill and primary-stat icon strokes.
-- `dark`: primary text and solid trim guides.
-- `mid`: supporting text such as raw ability scores and quick facts.
-- `grid`: card frames and primary rules.
-- `gray`: back edge labels and source notes.
-- `divider`: subtle dividers between rule blocks.
-- `discard_hatch`: light crosshatching in paper regions that will be discarded.
+- `front_background` and `front_border`: base fill and outer frame of the card
+  front.
+- `header_band_background` and `header_band_text`: header fill and all text in
+  the header.
+- `primary_stats_background`: background of the complete primary-stat region.
+- `icon_background`, `icon_border`, and `icon_text`: fill, outline, and text of
+  the AC, HP, Speed, and PP icons.
+- `ability_band_background`, `ability_label_text`, `ability_modifier_text`, and
+  `ability_score_text`: ability-band fill and its three text rows.
+- `quick_facts_background`, `quick_facts_border`, and `quick_facts_text`:
+  quick-facts strip fill, rules, and text.
+- `rule_blocks_background`, `rule_block_title_text`,
+  `rule_block_body_text`, and `rule_block_divider`: front rule-block area and
+  its content.
+- `back_edge_band_background`: fill behind the repeated labels around the card
+  back.
+- `back_body_background` and `back_border`: fill and frame of the back's inner
+  body region.
+- `back_edge_label_text`, `back_rule_title_text`, `back_rule_body_text`,
+  `back_metadata_text`, `back_divider`, and `source_note_text`: individual back
+  text and divider roles.
+- `trim_guide` and `discard_hatch`: cutter-guide strokes and light crosshatching
+  in paper regions that will be discarded.
 
 ## `fonts`
 

@@ -1,0 +1,5 @@
+{
+    "powershell.startAutomatically": false,
+    "powershell.integratedConsole.showOnStartup": false,
+    "terminal.integrated.defaultProfile.osx": "bash"
+}

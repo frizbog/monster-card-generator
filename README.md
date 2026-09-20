@@ -271,7 +271,7 @@ That contains card dimensions, colors, and most font sizes. For example:
 is the new large ability-modifier size.
 
 The front header is sized from visible proportions rather than independent
-coordinates. `layout.front_header.height_in` controls the teal band's physical
+coordinates. `layout.front_header.height_in` controls the header band's physical
 height. `name_height_percent` and `challenge_rating_height_percent` derive those
 font sizes from the padded band height; the subtitle uses the portion of the
 two-row stack not assigned to the name. Text is measured and reduced further

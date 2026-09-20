@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from typing import Iterable
 
-from reportlab.lib.colors import HexColor, white
+from reportlab.lib.colors import Color, HexColor
 from reportlab.lib.utils import simpleSplit
 from reportlab.pdfbase.pdfmetrics import getAscentDescent, getFont, stringWidth
 from reportlab.pdfgen import canvas
@@ -105,18 +105,23 @@ class CardRenderer:
         self.back_edge_band = float(self.back["edge_band_in"]) * PT_PER_IN
         if self.back_edge_band <= self.M:
             raise ValueError("layout.back.edge_band_in must exceed margin_pt / 72")
-        colors = self.style["colors"]
-        self.TEAL = HexColor(colors["teal"])
-        self.DARK = HexColor(colors["dark"])
-        self.MID = HexColor(colors["mid"])
-        self.GRID = HexColor(colors["grid"])
-        self.GRAY = HexColor(colors["gray"])
-        self.DIVIDER = HexColor(colors["divider"])
-        self.DISCARD_HATCH = HexColor(colors["discard_hatch"])
+        self.colors = {
+            name: self._parse_color(name,value)
+            for name,value in self.style["colors"].items()
+        }
         self.sizes = self.style["sizes"]
         self.c: canvas.Canvas | None = None
         self._back_body_sizes: dict[int, float] = {}
         self._fact_flow_prepared: set[int] = set()
+
+    @staticmethod
+    def _parse_color(name: str, value: object) -> Color | None:
+        """Convert a configured #rrggbb color, with `none` meaning no ink."""
+        if value == "none":
+            return None
+        if not isinstance(value,str) or re.fullmatch(r"#[0-9a-fA-F]{6}",value) is None:
+            raise ValueError(f"colors.{name} must be #rrggbb or none")
+        return HexColor(value)
 
     def render(self, cards: Iterable[MonsterCard], output: str | Path) -> Path:
         """Measure all text, then place up to two complete spreads on each sheet."""
@@ -166,7 +171,11 @@ class CardRenderer:
         c.saveState()
         clip = c.beginPath(); clip.rect(x,y,width,height)
         c.clipPath(clip,stroke=0,fill=0)
-        c.setStrokeColor(self.DISCARD_HATCH)
+        color = self.colors["discard_hatch"]
+        if color is None:
+            c.restoreState()
+            return
+        c.setStrokeColor(color)
         c.setLineWidth(float(self.layout["discard_hatch_line_width_pt"]))
         start = x-height
         end = x+width+height
@@ -185,7 +194,11 @@ class CardRenderer:
     def _draw_trim_guides(self) -> None:
         c = self.c; assert c
         c.saveState()
-        c.setStrokeColor(self.DARK)
+        color = self.colors["trim_guide"]
+        if color is None:
+            c.restoreState()
+            return
+        c.setStrokeColor(color)
         c.setLineWidth(float(self.layout["trim_guide_width_pt"]))
         for x1,y1,x2,y2 in self._trim_guide_segments():
             c.line(x1,y1,x2,y2)
@@ -193,11 +206,22 @@ class CardRenderer:
 
     def _line(self, x1, y1, x2, y2, width=.7, color=None):
         c = self.c; assert c
-        c.setStrokeColor(color or self.GRID); c.setLineWidth(width); c.line(x1, y1, x2, y2)
+        if color is None:
+            return
+        c.setStrokeColor(color); c.setLineWidth(width); c.line(x1, y1, x2, y2)
 
     def _center(self, text, x, y, font="bold", size=8, color=None):
         c = self.c; assert c
-        c.setFillColor(color or self.DARK); c.setFont(self.fonts[font], size); c.drawCentredString(x, y, str(text))
+        if color is None:
+            return
+        c.setFillColor(color); c.setFont(self.fonts[font], size); c.drawCentredString(x, y, str(text))
+
+    def _fill_rect(self, x, y, width, height, color) -> None:
+        c = self.c; assert c
+        if color is None or width <= 0 or height <= 0:
+            return
+        c.setFillColor(color)
+        c.rect(x,y,width,height,stroke=0,fill=1)
 
     def _fit(self, text, maxw, start, minsize, font="regular"):
         s = float(start)
@@ -208,7 +232,10 @@ class CardRenderer:
 
     def _outer(self):
         c = self.c; assert c
-        c.setStrokeColor(self.GRID); c.setLineWidth(1); c.rect(self.M, self.M, self.W - 2*self.M, self.H - 2*self.M, stroke=1, fill=0)
+        color = self.colors["front_border"]
+        if color is None:
+            return
+        c.setStrokeColor(color); c.setLineWidth(1); c.rect(self.M, self.M, self.W - 2*self.M, self.H - 2*self.M, stroke=1, fill=0)
 
     def _front_header_usable_height(self) -> float:
         """Return header height available to the name and subtitle rows."""
@@ -349,12 +376,15 @@ class CardRenderer:
     def _header(self, card: MonsterCard):
         c = self.c; assert c
         header = self._front_header_layout(card)
-        c.setFillColor(self.TEAL)
-        c.rect(
+        self._fill_rect(
             self.M,self.H-self.M-self.front_header_height,
-            self.W-2*self.M,self.front_header_height,fill=1,stroke=0,
+            self.W-2*self.M,self.front_header_height,
+            self.colors["header_band_background"],
         )
-        c.setFillColor(white)
+        text_color = self.colors["header_band_text"]
+        if text_color is None:
+            return
+        c.setFillColor(text_color)
         c.setFont(self.fonts["black"],header["name_size"])
         c.drawString(header["left"],header["name_baseline"],card.name)
         c.setFont(self.fonts["bold"],header["subtitle_size"])
@@ -413,12 +443,23 @@ class CardRenderer:
         text = self._primary_stat_text_layout(kind,label,str(value),cx,top)
         self._center(
             label,text["center"],text["label_baseline"],
-            size=text["label_size"],
+            size=text["label_size"],color=self.colors["icon_text"],
         )
         self._center(
             value,text["center"],text["value_baseline"],font="black",
-            size=text["value_size"],
+            size=text["value_size"],color=self.colors["icon_text"],
         )
+
+    def _draw_icon_path(self, path) -> None:
+        c = self.c; assert c
+        border = self.colors["icon_border"]
+        background = self.colors["icon_background"]
+        if border is not None:
+            c.setStrokeColor(border)
+            c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN)
+        if background is not None:
+            c.setFillColor(background)
+        c.drawPath(path,stroke=border is not None,fill=background is not None)
 
     def _shield_ac(self, cx, top, value):
         c = self.c; assert c
@@ -426,7 +467,7 @@ class CardRenderer:
         scale = h/self.PRIMARY_STAT_REFERENCE_HEIGHT; x, y = cx-w/2, top-h
         p = c.beginPath(); p.moveTo(x,y+h); p.lineTo(x+w,y+h)
         p.lineTo(x+w-7*scale,y); p.lineTo(x+7*scale,y); p.close()
-        c.setStrokeColor(self.TEAL); c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN); c.drawPath(p, stroke=1, fill=0)
+        self._draw_icon_path(p)
         self._draw_primary_stat_text("ac","AC",value,cx,top)
 
     def _box_hp(self, cx, top, value):
@@ -437,7 +478,7 @@ class CardRenderer:
         p.moveTo(x+7*scale,y+h); p.lineTo(x+w-7*scale,y+h); p.lineTo(x+w-7*scale,y+h-6*scale); p.lineTo(x+w,y+h-6*scale)
         p.lineTo(x+w,y+6*scale); p.lineTo(x+w-7*scale,y+6*scale); p.lineTo(x+w-7*scale,y); p.lineTo(x+7*scale,y); p.lineTo(x+7*scale,y+6*scale)
         p.lineTo(x,y+6*scale); p.lineTo(x,y+h-6*scale); p.lineTo(x+7*scale,y+h-6*scale); p.close()
-        c.setStrokeColor(self.TEAL); c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN); c.drawPath(p, stroke=1, fill=0)
+        self._draw_icon_path(p)
         self._draw_primary_stat_text("hp","HP",value,cx,top)
 
     def _arrow_speed(self, cx, top, value):
@@ -446,23 +487,41 @@ class CardRenderer:
         scale = h/self.PRIMARY_STAT_REFERENCE_HEIGHT; x, y = cx-w/2, top-h
         p = c.beginPath(); p.moveTo(x,y); p.lineTo(x+39*scale,y); p.lineTo(x+39*scale,y+8*scale); p.lineTo(x+w,y+h/2)
         p.lineTo(x+39*scale,y+h-8*scale); p.lineTo(x+39*scale,y+h); p.lineTo(x,y+h); p.close()
-        c.setStrokeColor(self.TEAL); c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN); c.drawPath(p, stroke=1, fill=0)
+        self._draw_icon_path(p)
         self._draw_primary_stat_text("speed","SPEED",value,cx,top)
 
     def _circle_pp(self, cx, top, value):
         c = self.c; assert c
         h = self.primary_stat_height; r = h/2; y = top-r
         text = self._primary_stat_text_layout("pp","PP",str(value),cx,top)
-        c.setStrokeColor(self.TEAL); c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN); c.circle(cx,y,r,stroke=1,fill=0)
+        border = self.colors["icon_border"]
+        background = self.colors["icon_background"]
+        if border is not None:
+            c.setStrokeColor(border)
+            c.setLineWidth(float(self.primary_stats["line_width_in"])*PT_PER_IN)
+        if background is not None:
+            c.setFillColor(background)
+        c.circle(cx,y,r,stroke=border is not None,fill=background is not None)
         self._line(
             cx-r,text["boundary"],cx+r,text["boundary"],
             width=float(self.primary_stats["divider_line_width_in"])*PT_PER_IN,
-            color=self.TEAL,
+            color=self.colors["icon_border"],
         )
         self._draw_primary_stat_text("pp","PP",value,cx,top)
 
     def _dashboard(self, card: MonsterCard):
         top = self._dashboard_top()
+        header_bottom = self.H-self.M-self.front_header_height
+        ability_top = top-self.primary_stat_height
+        self._fill_rect(
+            self.M,ability_top,self.W-2*self.M,header_bottom-ability_top,
+            self.colors["primary_stats_background"],
+        )
+        self._fill_rect(
+            self.M,ability_top-self.ability_band_height,
+            self.W-2*self.M,self.ability_band_height,
+            self.colors["ability_band_background"],
+        )
         # AC and PP have matching frame insets; HP and Speed divide the span evenly.
         dashboard_inset = (self.W-2*self.M)*float(
             self.primary_stats["horizontal_inset_width_percent"]
@@ -480,7 +539,6 @@ class CardRenderer:
 
         # Modifiers are deliberately large; raw scores are supporting information
         # beneath them. There are intentionally no "MODIFIERS" / "Raw Scores" labels.
-        ability_top = top-self.primary_stat_height
         for index, abbr in enumerate(ABILITIES):
             self._draw_ability(index,abbr,card.abilities[abbr],ability_top)
         return ability_top-self.ability_band_height
@@ -560,15 +618,17 @@ class CardRenderer:
         layout = self._ability_layout(index,abbr,ability,top)
         center = layout["center"]
         self._center(
-            abbr,center,layout["label_baseline"],font="bold",size=layout["label_size"]
+            abbr,center,layout["label_baseline"],font="bold",size=layout["label_size"],
+            color=self.colors["ability_label_text"],
         )
         self._center(
             signed(ability.modifier),center,layout["modifier_baseline"],
             font="black",size=layout["modifier_size"],
+            color=self.colors["ability_modifier_text"],
         )
         self._center(
             str(ability.score),center,layout["score_baseline"],font="regular",
-            size=layout["score_size"],color=self.MID,
+            size=layout["score_size"],color=self.colors["ability_score_text"],
         )
 
     def _dashboard_top(self) -> float:
@@ -597,11 +657,18 @@ class CardRenderer:
             text,"black",height*float(self.quick_facts["text_height_percent"])/100,
             text_width,minimum,"quick-facts band",
         )
+        self._fill_rect(
+            self.M,y-height,width,height,self.colors["quick_facts_background"]
+        )
         line_width = float(self.quick_facts["line_width_in"])*PT_PER_IN
-        self._line(self.M,y,self.W-self.M,y,width=line_width)
-        self._line(self.M,y-height,self.W-self.M,y-height,width=line_width)
+        border = self.colors["quick_facts_border"]
+        self._line(self.M,y,self.W-self.M,y,width=line_width,color=border)
+        self._line(self.M,y-height,self.W-self.M,y-height,width=line_width,color=border)
         baseline = self._baseline_for_row(self.fonts["black"],size,y-height,y)
-        self._center(text,self.W/2,baseline,font="black",size=size,color=self.MID)
+        self._center(
+            text,self.W/2,baseline,font="black",size=size,
+            color=self.colors["quick_facts_text"],
+        )
         return y-height
 
     def _block_layout(self, block: RuleBlock):
@@ -632,12 +699,20 @@ class CardRenderer:
         size = self.sizes["body"]
         x = self.M+7; right = self.W-self.M-7
         if divider:
-            self._line(x,y+4,right,y+4,width=.45,color=self.DIVIDER)
-        c.setFillColor(self.DARK); c.setFont(self.fonts["bold"],size); c.drawString(x,y-8,block.title)
+            self._line(
+                x,y+4,right,y+4,width=.45,
+                color=self.colors["rule_block_divider"],
+            )
+        title_color = self.colors["rule_block_title_text"]
+        if title_color is not None:
+            c.setFillColor(title_color); c.setFont(self.fonts["bold"],size); c.drawString(x,y-8,block.title)
         titlew, lines = self._block_layout(block)
         yy=y-8
+        body_color = self.colors["rule_block_body_text"]
         for text,is_first in lines:
-            c.setFont(self.fonts["regular"],size); c.drawString(x+titlew if is_first else x,yy,text); yy-=size*1.34
+            if body_color is not None:
+                c.setFillColor(body_color); c.setFont(self.fonts["regular"],size); c.drawString(x+titlew if is_first else x,yy,text)
+            yy-=size*1.34
         return yy-4
 
     def _front_block_top(self, card: MonsterCard) -> float:
@@ -900,11 +975,23 @@ class CardRenderer:
         )
 
     def _draw_front(self, card: MonsterCard):
-        self._outer(); self._header(card); y=self._dashboard(card); y=self._facts(y,card.quick_facts); y-=7
+        self._fill_rect(
+            self.M,self.M,self.W-2*self.M,self.H-2*self.M,
+            self.colors["front_background"],
+        )
+        self._header(card); y=self._dashboard(card)
+        rule_blocks_top = y-self.quick_facts_band_height if card.quick_facts else y
+        self._fill_rect(
+            self.M,self.M,self.W-2*self.M,rule_blocks_top-self.M,
+            self.colors["rule_blocks_background"],
+        )
+        y=self._facts(y,card.quick_facts)
+        y-=7
         drew_block = False
         for block in card.blocks:
             y = self._block(y,block,divider=drew_block)
             drew_block = True
+        self._outer()
 
     @staticmethod
     def _back_divider_y(previous_baseline: float, next_baseline: float) -> float:
@@ -918,18 +1005,31 @@ class CardRenderer:
         body_padding = self._back_body_horizontal_padding()
         top=self.H-self.back_edge_band; bot=self.back_edge_band
         left=self.back_edge_band; right=self.W-self.back_edge_band
-        c.setStrokeColor(self.GRID); c.setLineWidth(float(self.back["frame_line_width_pt"])); c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
+        self._fill_rect(
+            self.M,self.M,self.W-2*self.M,self.H-2*self.M,
+            self.colors["back_edge_band_background"],
+        )
+        self._fill_rect(
+            left,bot,right-left,top-bot,self.colors["back_body_background"]
+        )
+        border = self.colors["back_border"]
+        if border is not None:
+            c.setStrokeColor(border)
+            c.setLineWidth(float(self.back["frame_line_width_pt"]))
+            c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
         edge=f"{card.name.upper()} · CR {card.cr}"
         # Font ascenders extend above a baseline, so center the glyph metrics—not
         # the baseline itself—in the usable band between margin and inner frame.
         edge_size = self._back_edge_label_size(edge)
         edge_inset = self._back_edge_label_baseline(edge_size)
-        c.setFillColor(self.GRAY); c.setFont(self.fonts["bold"],edge_size)
-        c.drawCentredString(self.W/2,edge_inset,edge)
-        c.saveState(); c.translate(self.W/2,self.H-edge_inset); c.rotate(180); c.drawCentredString(0,0,edge); c.restoreState()
-        # Corrected from the first prototype: both long-side labels rotated 180°.
-        c.saveState(); c.translate(edge_inset,self.H/2); c.rotate(-90); c.drawCentredString(0,0,edge); c.restoreState()
-        c.saveState(); c.translate(self.W-edge_inset,self.H/2); c.rotate(90); c.drawCentredString(0,0,edge); c.restoreState()
+        edge_color = self.colors["back_edge_label_text"]
+        if edge_color is not None:
+            c.setFillColor(edge_color); c.setFont(self.fonts["bold"],edge_size)
+            c.drawCentredString(self.W/2,edge_inset,edge)
+            c.saveState(); c.translate(self.W/2,self.H-edge_inset); c.rotate(180); c.drawCentredString(0,0,edge); c.restoreState()
+            # Corrected from the first prototype: both long-side labels rotated 180°.
+            c.saveState(); c.translate(edge_inset,self.H/2); c.rotate(-90); c.drawCentredString(0,0,edge); c.restoreState()
+            c.saveState(); c.translate(self.W-edge_inset,self.H/2); c.rotate(90); c.drawCentredString(0,0,edge); c.restoreState()
 
         y=self._back_text_start(body_size)
         previous_baseline: float | None = None
@@ -939,39 +1039,56 @@ class CardRenderer:
                 divider_y = self._back_divider_y(previous_baseline,first_baseline)
                 self._line(
                     left+body_padding,divider_y,right-body_padding,divider_y,
-                    width=.45,color=self.DIVIDER,
+                    width=.45,color=self.colors["back_divider"],
                 )
             if block.meta:
-                c.setFillColor(self.DARK); c.setFont(self.fonts["bold"],body_size)
-                c.drawString(left+body_padding,y-8,block.title)
-                c.setFont(self.fonts["bold"],6.4); c.setFillColor(self.MID); c.drawRightString(right-body_padding,y-8,block.meta)
-                yy=y-21; c.setFillColor(self.DARK); c.setFont(self.fonts["regular"],body_size)
+                title_color = self.colors["back_rule_title_text"]
+                if title_color is not None:
+                    c.setFillColor(title_color); c.setFont(self.fonts["bold"],body_size)
+                    c.drawString(left+body_padding,y-8,block.title)
+                metadata_color = self.colors["back_metadata_text"]
+                if metadata_color is not None:
+                    c.setFont(self.fonts["bold"],6.4); c.setFillColor(metadata_color); c.drawRightString(right-body_padding,y-8,block.meta)
+                yy=y-21
+                body_color = self.colors["back_rule_body_text"]
                 last_baseline = y-8
                 for ln in simpleSplit(block.text,self.fonts["regular"],body_size,self._back_text_width()):
-                    c.drawString(left+body_padding,yy,ln); last_baseline=yy; yy-=body_leading
+                    if body_color is not None:
+                        c.setFillColor(body_color); c.setFont(self.fonts["regular"],body_size)
+                        c.drawString(left+body_padding,yy,ln)
+                    last_baseline=yy; yy-=body_leading
                 y=yy-6
             else:
                 title_lines, titlew, lines, inline = self._back_inline_layout(block,body_size)
-                yy=y-4; c.setFillColor(self.DARK)
+                yy=y-4
+                title_color = self.colors["back_rule_title_text"]
+                body_color = self.colors["back_rule_body_text"]
                 last_baseline = yy
                 if inline:
-                    c.setFont(self.fonts["bold"],body_size); c.drawString(left+body_padding,yy,block.title)
-                    c.setFont(self.fonts["regular"],body_size)
+                    if title_color is not None:
+                        c.setFillColor(title_color); c.setFont(self.fonts["bold"],body_size); c.drawString(left+body_padding,yy,block.title)
                     for text, is_first in lines:
-                        c.drawString(left+body_padding+titlew if is_first else left+body_padding,yy,text); last_baseline=yy; yy-=body_leading
+                        if body_color is not None:
+                            c.setFillColor(body_color); c.setFont(self.fonts["regular"],body_size)
+                            c.drawString(left+body_padding+titlew if is_first else left+body_padding,yy,text)
+                        last_baseline=yy; yy-=body_leading
                 else:
-                    c.setFont(self.fonts["bold"],body_size)
                     for title_line in title_lines:
-                        c.drawString(left+body_padding,yy,title_line); last_baseline=yy; yy-=body_leading
-                    c.setFont(self.fonts["regular"],body_size)
+                        if title_color is not None:
+                            c.setFillColor(title_color); c.setFont(self.fonts["bold"],body_size)
+                            c.drawString(left+body_padding,yy,title_line)
+                        last_baseline=yy; yy-=body_leading
                     for text, _ in lines:
-                        c.drawString(left+body_padding,yy,text); last_baseline=yy; yy-=body_leading
+                        if body_color is not None:
+                            c.setFillColor(body_color); c.setFont(self.fonts["regular"],body_size)
+                            c.drawString(left+body_padding,yy,text)
+                        last_baseline=yy; yy-=body_leading
                 y=yy-1
             previous_baseline = last_baseline
         if card.source_note:
             note_size = self.sizes["source_note"]
             note_leading = self._back_source_note_leading()
-            c.setFillColor(self.GRAY); c.setFont(self.fonts["regular"],note_size)
+            note_color = self.colors["source_note_text"]
             lines=simpleSplit(
                 card.source_note,self.fonts["regular"],note_size,self._back_source_note_width()
             )
@@ -981,4 +1098,7 @@ class CardRenderer:
             )
             yy=bot+bottom_padding+note_leading*(len(lines)-1)
             for ln in lines:
-                c.drawCentredString(self.W/2,yy,ln); yy-=note_leading
+                if note_color is not None:
+                    c.setFillColor(note_color); c.setFont(self.fonts["regular"],note_size)
+                    c.drawCentredString(self.W/2,yy,ln)
+                yy-=note_leading
