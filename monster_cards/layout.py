@@ -1,4 +1,4 @@
-"""Physical sheet and folded-card geometry shared by PDF rendering code."""
+"""Physical Letter-sheet and minisheet geometry shared by PDF rendering code."""
 
 from __future__ import annotations
 
@@ -12,49 +12,66 @@ PT_PER_IN = 72.0
 
 @dataclass(frozen=True)
 class SheetLayout:
-    """Configured dimensions for one printed sheet and one card panel.
+    """Configured dimensions for a Letter sheet and both minisheet sizes.
 
-    All values stored here are points. A spread is two card panels wide: front
-    on the left and back on the right. The renderer uses this model rather than
-    repeating physical Letter-sheet arithmetic in drawing methods.
+    Normal minisheets occupy one quadrant. Large minisheets are authored in
+    portrait orientation, then rotated into one complete half-sheet row.
     """
 
     page_width: float
     page_height: float
     card_width: float
     card_height: float
+    large_card_width: float
+    large_card_height: float
     artwork_inset: float
 
     @classmethod
     def from_style(cls, style: dict) -> "SheetLayout":
         """Read user-facing inches/points from the JSON style configuration."""
-        return cls(
+        layout = cls(
             page_width=float(style["page_width_in"]) * PT_PER_IN,
             page_height=float(style["page_height_in"]) * PT_PER_IN,
             card_width=float(style["card_width_in"]) * PT_PER_IN,
             card_height=float(style["card_height_in"]) * PT_PER_IN,
+            large_card_width=float(style["large_card_width_in"]) * PT_PER_IN,
+            large_card_height=float(style["large_card_height_in"]) * PT_PER_IN,
             artwork_inset=float(style["margin_pt"]),
         )
+        layout.validate_imposition()
+        return layout
 
     @property
-    def spread_width(self) -> float:
-        return 2 * self.card_width
+    def row_height(self) -> float:
+        return self.page_height / 2
 
-    def spread_origin(self, top: bool) -> tuple[float, float]:
-        """Return the lower-left origin of the top or bottom spread on a sheet."""
-        return (0.0, self.page_height - self.card_height) if top else (0.0, 0.0)
+    def validate_imposition(self) -> None:
+        """Require dimensions that tile the page using the documented 2x2 grid."""
+        tolerance = 0.01
+        relationships = (
+            (2 * self.card_width, self.page_width, "two normal minisheet widths"),
+            (2 * self.card_height, self.page_height, "two normal minisheet heights"),
+            (self.large_card_width, self.row_height, "rotated large minisheet width"),
+            (self.large_card_height, self.page_width, "rotated large minisheet height"),
+        )
+        for actual, expected, label in relationships:
+            if abs(actual - expected) > tolerance:
+                raise ValueError(
+                    f"{label} must exactly span its Letter-sheet region "
+                    f"({actual / PT_PER_IN:g} in != {expected / PT_PER_IN:g} in)"
+                )
 
-    def trim_guide_segments(self) -> list[tuple[float, float, float, float]]:
-        """Return the three visible cut guides, never the initial fold line."""
-        return [
-            (self.spread_width, 0.0, self.spread_width, self.page_height),
-            (0.0, self.card_height, self.page_width, self.card_height),
-            (0.0, self.page_height - self.card_height, self.page_width, self.page_height - self.card_height),
-        ]
+    def row_origin_y(self, top: bool) -> float:
+        return self.row_height if top else 0.0
 
-    def discard_regions(self) -> list[tuple[float, float, float, float]]:
-        """Return the right and center paper regions removed during trimming."""
-        return [
-            (self.spread_width, 0.0, self.page_width - self.spread_width, self.page_height),
-            (0.0, self.card_height, self.spread_width, self.page_height - 2 * self.card_height),
-        ]
+    def trim_guide_segments(
+        self, *, top_is_normal: bool, bottom_is_normal: bool
+    ) -> list[tuple[float, float, float, float]]:
+        """Return the center-row cut and only the applicable quadrant cuts."""
+        segments = [(0.0, self.row_height, self.page_width, self.row_height)]
+        center_x = self.page_width / 2
+        if top_is_normal:
+            segments.append((center_x, self.row_height, center_x, self.page_height))
+        if bottom_is_normal:
+            segments.append((center_x, 0.0, center_x, self.row_height))
+        return segments

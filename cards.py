@@ -61,7 +61,7 @@ directory is loaded alongside the SRD. Use --custom-monsters to select a
 different JSON file or directory.
 """
     parser = argparse.ArgumentParser(
-        description="Generate fast-play D&D monster cards as PDFs.",
+        description="Generate fast-play D&D monster minisheets as PDFs.",
         epilog="""examples:
   cards.py monster "Goblin Warrior"
   cards.py monster "Clockwork Goblin" \\
@@ -75,7 +75,7 @@ different JSON file or directory.
     # the work, which keeps `--help` quick and side-effect free.
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_sample = sub.add_parser("sample", help="Render the bundled two-card smoke test; no SRD repo required.")
+    p_sample = sub.add_parser("sample", help="Render the bundled two-monster smoke test; no SRD repo required.")
     p_sample.add_argument("--out", default=str(ROOT / "output" / "sample-cards.pdf"))
     p_sample.add_argument("--style", default=str(DEFAULT_STYLE))
 

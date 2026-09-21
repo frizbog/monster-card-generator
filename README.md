@@ -1,18 +1,20 @@
 # Monster Card Generator
 
-A small, local Python tool that turns D&D SRD monster JSON into fast-play, duplex monster cards.
+A small, local Python tool that turns D&D SRD monster JSON into one-sided,
+fast-play monster minisheets.
 
 The project deliberately keeps the **SRD data repository separate** from the **card generator**. The SRD clone is an upstream dependency; this repository contains only layout, normalization, heuristics, and your editorial overrides.
 
 ## What this version does
 
-- Renders two foldable card spreads per standard portrait US Letter PDF page
-  (**8.5 x 11 inches**), with no special printer-driver setup.
-- Sizes each unfolded spread to **8 1/8 x 5 5/16 inches** so four folded cards
-  fit in a 9 x 11.5 inch laminating pouch with laminate tolerance.
-- Uses the v0.2/v0.3 visual grammar: teal identity header; AC/HP/Speed/PP dashboard; six abilities; flexible quick-facts strip; flowing rules section; mostly empty reverse with four edge labels.
+- Renders one-sided minisheets on standard portrait US Letter pages (**8.5 x
+  11 inches**) with no special printer-driver setup.
+- Fits four ordinary **4.25 x 5.5 inch** minisheets per page. Content that does
+  not fit promotes to a portrait **5.5 x 8.5 inch** minisheet, rotated into one
+  complete half-sheet row for printing.
+- Uses the v0.2/v0.3 visual grammar: teal identity header; AC/HP/Speed/PP
+  dashboard; six abilities; flexible quick-facts strip; and flowing rules.
 - Uses **Noto Sans**. Ability modifiers are deliberately large; the old `MODIFIERS` and `Raw Scores` labels are gone.
-- Corrects the reverse long-edge orientation: the left and right edge labels are rotated 180 degrees from the first prototype.
 - Reads several common SRD-as-JSON layouts rather than hard-coding one repository schema.
 - Automatically proposes a compact `quick_facts` strip from initiative, useful skills/saves, senses, resistances/immunities, etc.
 - Supports editorial JSON overrides so a hand-tuned card stays hand-tuned.
@@ -201,6 +203,9 @@ An override can change only what needs changing:
 }
 ```
 
+For compatibility, `overflow` entries are retained as a named override field;
+they now render after the ordinary rule blocks on the same one-sided minisheet.
+
 The important design rule is: **if an operational spell summary is good, save it rather than re-summarizing it every run.** A later version can factor shared spell summaries into their own library.
 
 ## 8. Quick-facts selection
@@ -299,13 +304,10 @@ The default 0.30-inch strip has slightly less vertical whitespace than the
 original fixed-height strip. Facts that cannot fit at the configured minimum
 text size continue to move into labeled rule blocks.
 
-Back-face layout settings are collected under `layout.back`, including its edge
-band, frame line, text padding, and source-note spacing.
-Vertical spacing uses percentages of the current body line height, while the
-source note's line height is a percentage of its own font size. Horizontal body
-and source-note padding use percentages of the back frame's inner width, keeping
-them independent of the derived font sizes. Physical frame-line width remains
-in points.
+Large-sheet fallback settings are collected under `layout.large_columns`.
+Dense large sheets can use two rule-text columns and reduce body text in whole
+one-point steps down to the configured minimum; the normal size never shrinks
+instead of promoting.
 
 As a general style convention for these responsive bands, absolute physical
 measurements use inches while internal geometry uses percentages of the named
@@ -320,7 +322,8 @@ Edit:
 monster_cards/renderer.py
 ```
 
-This contains the actual coordinates and shapes for the header, dashboard, ability row, quick-facts strip, flow area, and reverse.
+This contains the coordinates and shapes for the header, dashboard, ability
+row, quick-facts strip, flowing rules, measured promotion, and page imposition.
 
 ### SRD schema adaptation
 
@@ -380,7 +383,11 @@ The renderer knows nothing about the upstream SRD repository. If the upstream sc
 
 ## Important current limitation
 
-This is **v0.1 of the reusable code**, not a finished publishing engine. Generic source descriptions can still be too verbose for a card. The renderer measures text before drawing, moves overflow predictively, and reduces back-side continuation text when needed; if the complete content still cannot fit, it reports an explicit overflow error.
+This is **v0.1 of the reusable code**, not a finished publishing engine. The
+renderer measures all text before drawing. It promotes content from a normal to
+a large minisheet, then may use two columns and one-point body-text reductions
+down to the configured minimum. If the complete content still cannot fit, it
+reports an explicit overflow error.
 
 That is intentional at this stage: use `--dump-normalized`, create overrides for the cards you actually care about, and let real monsters tell us what the next general rule should be.
 
@@ -388,123 +395,35 @@ The next valuable improvements are likely:
 
 - a reusable spell-summary library;
 - smarter recognition of attack syntax from SRD action prose;
-- additional printer calibration guidance for the foldable Letter-sheet workflow;
+- additional printer calibration guidance for the Letter minisheet workflow;
 - card/kit batch manifests and validation.
 
-## Printing, cutting, folding, and laminating
+## Printing and cutting
 
-Each PDF page is a normal portrait US Letter page: **8.5 x 11 inches**. It
-contains two unfolded card spreads, one in the top half and one in the bottom
-half. Each spread is **8 1/8 x 5 5/16 inches**, with the front on the left and
-the back on the right; the panels touch at the vertical center fold. Card 1 is
-flush with the top and left paper edges. Card 2 is flush with the bottom and
-left paper edges.
-
-This layout is intentional. It puts both sides of a card on the same printed
-side of the paper, so the front and back cannot drift out of registration as
-they can with duplex printing.
-
-The PDF includes solid cutter guides at the right edge of the spreads and at
-both edges of the narrow center band. After the first fold, the two center-band
-guides coincide. There is deliberately no line at the sheet's 5.5-inch fold:
-every solid guide is a line to cut, not a line to fold. A light, unlabeled
-crosshatch fills the portions that will be discarded; the darker solid lines
-remain the cutting guides.
+Each PDF page is portrait US Letter, **8.5 x 11 inches**, and contains two
+physical rows. A row holds either two normal **4.25 x 5.5 inch** minisheets or
+one rotated large minisheet. The large minisheet's logical size is portrait
+**5.5 x 8.5 inches**; it occupies an **8.5 x 5.5 inch** row on the printed page.
 
 ```text
-Portrait US Letter page (8.5 x 11 in.)
+Four normal minisheets         Mixed page
 
-top paper edge
-┌────────────────────────────────────────────────────────────┬───┐
-│  Card 1 spread: FRONT          | BACK                      │   │
-│                                 fold                       │   │
-│                                |                           │   │
-│                                                            │   │
-│          3/16 in. reserved beside center fold              │   │
-│════════ fold full sheet here, printed side out ════════════│═══│
-│          3/16 in. reserved beside center fold              │   │
-│                                                            │   │
-│                                |                           │   │
-│                                 fold                       │   │
-│  Card 2 spread: FRONT          | BACK                      │   │
-└────────────────────────────────────────────────────────────┴───┘
-bottom paper edge                                           right paper edge
-                                                             ↑
-                                           Cut 1 after folding: 3/8 in.
-
-The left, top, and bottom paper edges are retained.
+┌──────────┬──────────┐       ┌──────────┬──────────┐
+│ normal   │ normal   │       │ normal   │ normal   │
+├──────────┼──────────┤       ├──────────┴──────────┤
+│ normal   │ normal   │       │ rotated large         │
+└──────────┴──────────┘       └─────────────────────┘
 ```
 
-For a practical batch workflow:
+Print at **Actual Size** or **100%**. Cut every page horizontally at the
+5.5-inch center guide. If a row contains normal minisheets, cut only that row at
+the 4.25-inch vertical guide. Never extend that vertical cut through a large
+row. Turn each large half-sheet 90 degrees after cutting to read it upright.
 
-1. Print the PDF at **Actual Size** or **100%** on ordinary US Letter paper.
-   Do not use “Fit,” “Shrink,” borderless scaling, duplex mode, or a custom
-   paper size. The printer driver only needs to handle a vanilla Letter page.
-   **Margins are already built into the PDF content.**
-2. Fold the full Letter sheet across its horizontal centerline, printed side
-   out. This produces one folded **8.5 x 5.5 inch** piece with both printed
-   spreads visible and the two halves perfectly stacked.
-3. Trim **3/8 inch** from the right paper edge, perpendicular to the fold. This
-   trims both stacked spreads to **8 1/8 inches** wide in one cut. Cut on the
-   visible vertical guide.
-4. Trim **3/16 inch** from the folded edge, parallel to the fold. Discard the
-   narrow strip containing the entire fold. This cut separates the two spreads
-   and leaves each one **5 5/16 inches** tall. The two visible horizontal guides
-   align after Step 2's fold, providing the cut line on both faces.
-5. Fold each separated spread vertically along the shared long edge between the
-   front and back panels. The folded paper card is **4 1/16 x 5 5/16 inches**.
-6. Arrange four folded cards in a 2 x 2 grid in a 9 x 11.5 inch laminating
-   pouch and laminate them.
-
-```text
-Cut and fold sequence
-
-1. Fold full Letter sheet at 5.5 in., printed side OUT:
-
-   open sheet                         folded stack: 8.5 x 5.5 in.
-   ┌──────────────────────┐           ┌────────────────────────┐
-   │ Card 1 spread        │           │ Cards 1&2 back to back │
-   │======================│  fold →   └────────────────────────┘ ← folded edge
-   │ Card 2 spread        │
-   └──────────────────────┘
-
-2. Cut 3/8 in. from the right edge, through both layers:
-
-   ┌────────────────────┬─┐
-   │ stacked spreads    │x│  x = 3/8 in. → discard
-   └────────────────────┴─┘
-
-3. Cut 3/16 in. from the folded edge, parallel to it:
-
-   ┌────────────────────┐
-   │ stacked spreads    │
-   ├────────────────────┤  y = 3/16 in. folded strip → discard
-   └────────────────────┘
-
-   The two layers are now separate 8 1/8 x 5 5/16 in. card spreads.
-```
-
-```text
-Finished pouch layout (9 x 11.5 in.)
-
-              11.5" side
-┌──────────────────────────────────┐
-│  ┌────────────┐  ┌────────────┐  │
-│  │ Card 1     │  │ Card 2     │  │
-│  └────────────┘  └────────────┘  │
-│                                  │   9" side
-│  ┌────────────┐  ┌────────────┐  │
-│  │ Card 3     │  │ Card 4     │  │
-│  └────────────┘  └────────────┘  │
-└──────────────────────────────────┘
-
-Each folded card: 4 1/16 x 5 5/16 in.
-```
-
-The card dimensions leave 1/8 inch of total slack in each pouch direction,
-above the required 3/16-inch laminate material around every card. Keep the two
-panels adjacent at the fold; do not insert a gutter there, since the fold itself
-is the registration hinge.
+Monster names are selected in A–Z order. During imposition, the compositor may
+pull the next normal minisheet forward across intervening large minisheets to
+fill an otherwise blank quarter-page region. Two large minisheets can share the
+top and bottom rows of one page.
 
 ## Attribution
 

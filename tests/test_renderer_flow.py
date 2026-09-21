@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
+from unittest.mock import MagicMock, patch
 
 from monster_cards.io import load_manual_cards
 from monster_cards.layout import SheetLayout
@@ -14,7 +15,8 @@ from reportlab.pdfbase.pdfmetrics import getAscentDescent, getFont, stringWidth
 
 def _measurement_renderer() -> CardRenderer:
     renderer = CardRenderer.__new__(CardRenderer)
-    renderer.sizes = {"body": 8.5, "source_note": 4.7, "edge_label_max": 24, "edge_label_min": 5}
+    renderer.sizes = {"body": 8.5,"source_note": 4.7}
+    renderer.body_size = 8.5
     renderer.fonts = {
         "regular": "Helvetica",
         "bold": "Helvetica-Bold",
@@ -22,8 +24,12 @@ def _measurement_renderer() -> CardRenderer:
     }
     renderer.PAGE_W = 8.5 * 72
     renderer.PAGE_H = 11 * 72
-    renderer.W = 4.0625 * 72
-    renderer.H = 5.3125 * 72
+    renderer.W = 4.25 * 72
+    renderer.H = 5.5 * 72
+    renderer.NORMAL_W = renderer.W
+    renderer.NORMAL_H = renderer.H
+    renderer.LARGE_W = 5.5 * 72
+    renderer.LARGE_H = 8.5 * 72
     renderer.M = 18
     printable_width = renderer.W-2*renderer.M
     renderer.layout = {
@@ -65,16 +71,6 @@ def _measurement_renderer() -> CardRenderer:
             "line_width_in": .8/72,
             "text_min_size_in": 5.8/72,
         },
-        "back": {
-            "edge_band_in": 0.375,
-            "frame_line_width_pt": 0.8,
-            "body_horizontal_padding_width_percent": 11/(renderer.W-2*27)*100,
-            "source_note_horizontal_padding_width_percent": 10/(renderer.W-2*27)*100,
-            "text_top_padding_line_percent": 8.5/(8.5*1.34)*100,
-            "text_bottom_padding_line_percent": 8/(8.5*1.34)*100,
-            "source_note_clearance_line_percent": 6/(8.5*1.34)*100,
-            "source_note_line_height_percent": 5.5/4.7*100,
-        },
     }
     renderer.front_header = renderer.layout["front_header"]
     renderer.front_header_height = .75*72
@@ -84,13 +80,14 @@ def _measurement_renderer() -> CardRenderer:
     renderer.ability_band_height = 64
     renderer.quick_facts = renderer.layout["quick_facts"]
     renderer.quick_facts_band_height = .3*72
-    renderer.back = renderer.layout["back"]
-    renderer.back_edge_band = 27
+    renderer.large_columns = {"gutter_in": .14,"body_min_size_pt": 6.5}
     renderer.sheet = SheetLayout(
         page_width=renderer.PAGE_W,
         page_height=renderer.PAGE_H,
         card_width=renderer.W,
         card_height=renderer.H,
+        large_card_width=renderer.LARGE_W,
+        large_card_height=renderer.LARGE_H,
         artwork_inset=renderer.M,
     )
     return renderer
@@ -259,29 +256,10 @@ class RendererFlowTests(unittest.TestCase):
         self.assertGreater(taller["modifier_size"],layouts[0]["modifier_size"])
         self.assertEqual(taller["right"]-taller["left"],original_widths[0])
 
-    def test_back_edge_band_controls_the_inset_frame_width(self):
-        renderer = _measurement_renderer()
-        self.assertEqual(renderer._back_text_width(), renderer.W - 2*27 - 22)
-        self.assertEqual(renderer._back_text_start(8.5), renderer.H - 27 - 8.5)
-        self.assertAlmostEqual(renderer._back_body_horizontal_padding(),11)
-        self.assertAlmostEqual(renderer._back_source_note_horizontal_padding(),10)
-        self.assertAlmostEqual(renderer._back_source_note_leading(),5.5)
-        size = renderer._back_edge_label_size("EDGE")
-        ascent, descent = getAscentDescent(renderer.fonts["bold"], size)
-        self.assertLessEqual(
-            ascent-descent,
-            renderer.back_edge_band-renderer.M-renderer.back["frame_line_width_pt"]/2,
-        )
-        renderer.back_edge_band = 54
-        self.assertGreater(renderer._back_edge_label_size("EDGE"), size)
-
-    def test_back_divider_is_midway_between_adjacent_block_text(self):
-        self.assertEqual(CardRenderer._back_divider_y(120,96),108)
-
-    def test_renderer_emits_one_letter_page_per_pair_of_spreads(self):
+    def test_renderer_emits_letter_page_with_four_normal_minisheets(self):
         root = Path(__file__).resolve().parents[1]
-        cards = load_manual_cards(root / "examples" / "manual_monsters.json")
-        cards.append(deepcopy(cards[0]))
+        card = load_manual_cards(root / "examples" / "manual_monsters.json")[0]
+        cards = [deepcopy(card) for _ in range(4)]
 
         with TemporaryDirectory() as directory:
             output = Path(directory) / "cards.pdf"
@@ -289,22 +267,49 @@ class RendererFlowTests(unittest.TestCase):
             pdf = output.read_bytes()
 
         self.assertIn(b"/MediaBox [ 0 0 612 792 ]",pdf)
-        self.assertEqual(pdf.count(b"/Type /Page\n"),2)
+        self.assertEqual(pdf.count(b"/Type /Page\n"),1)
 
-    def test_letter_sheet_spreads_and_trim_guides_use_physical_edges(self):
+    def test_letter_sheet_rows_and_cut_guides_use_correct_physical_edges(self):
         renderer = _measurement_renderer()
 
-        self.assertEqual(renderer._spread_origin(top=True),(0.0,5.6875*72))
-        self.assertEqual(renderer._spread_origin(top=False),(0.0,0.0))
-        self.assertEqual(renderer._trim_guide_segments(),[
-            (8.125*72,0.0,8.125*72,11*72),
-            (0.0,5.3125*72,8.5*72,5.3125*72),
-            (0.0,5.6875*72,8.5*72,5.6875*72),
+        self.assertEqual(renderer.sheet.row_origin_y(top=True),5.5*72)
+        self.assertEqual(renderer.sheet.row_origin_y(top=False),0.0)
+        self.assertEqual(renderer._trim_guide_segments(
+            top_is_normal=True,bottom_is_normal=False,
+        ),[
+            (0.0,5.5*72,8.5*72,5.5*72),
+            (4.25*72,5.5*72,4.25*72,11*72),
         ])
-        self.assertEqual(renderer._discard_regions(),[
-            (8.125*72,0.0,.375*72,11*72),
-            (0.0,5.3125*72,8.125*72,.375*72),
+        self.assertEqual(renderer._trim_guide_segments(
+            top_is_normal=True,bottom_is_normal=True,
+        ),[
+            (0.0,5.5*72,8.5*72,5.5*72),
+            (4.25*72,5.5*72,4.25*72,11*72),
+            (4.25*72,0.0,4.25*72,5.5*72),
         ])
+
+    def test_large_minisheet_is_rotated_clockwise_into_a_complete_row(self):
+        renderer = _measurement_renderer()
+        renderer.c = MagicMock()
+        minisheet = SimpleNamespace(large=True,card=SimpleNamespace(name="Large"))
+
+        with patch.object(renderer,"_draw_minisheet") as draw:
+            renderer._draw_row([minisheet],top=False)
+
+        renderer.c.translate.assert_called_once_with(0,5.5*72)
+        renderer.c.rotate.assert_called_once_with(-90)
+        draw.assert_called_once_with(minisheet)
+
+    def test_configured_dimensions_exactly_tile_letter_rows(self):
+        root = Path(__file__).resolve().parents[1]
+        style = json.loads((root / "config" / "card_style.json").read_text())
+
+        layout = SheetLayout.from_style(style)
+
+        self.assertEqual((layout.card_width,layout.card_height),(4.25*72,5.5*72))
+        self.assertEqual(
+            (layout.large_card_width,layout.large_card_height),(5.5*72,8.5*72)
+        )
 
     def test_middle_bar_overflow_becomes_labeled_blocks_before_traits(self):
         renderer = _measurement_renderer()
@@ -328,66 +333,71 @@ class RendererFlowTests(unittest.TestCase):
             renderer.W-2*renderer.M-10,
         )
 
-    def test_large_block_splits_at_a_sentence_before_drawing(self):
-        text = " ".join(
-            f"Sentence {number} provides enough explanatory words to exercise semantic overflow handling."
-            for number in range(1, 13)
+    def test_overflow_content_promotes_to_large_without_disappearing(self):
+        root = Path(__file__).resolve().parents[1]
+        normal, complex_card = load_manual_cards(root / "examples" / "manual_monsters.json")
+        renderer = CardRenderer(root / "config" / "card_style.json")
+
+        normal_sheet = renderer._prepare_minisheet(normal)
+        large_sheet = renderer._prepare_minisheet(complex_card)
+
+        self.assertFalse(normal_sheet.large)
+        self.assertTrue(large_sheet.large)
+        self.assertEqual(len(large_sheet.card.blocks),6)
+        self.assertEqual(large_sheet.card.overflow,[])
+
+    def test_content_that_exceeds_large_minisheet_reports_overflow(self):
+        root = Path(__file__).resolve().parents[1]
+        card = load_manual_cards(root / "examples" / "manual_monsters.json")[0]
+        card.blocks = [RuleBlock("Unbounded Feature:","word "*2500)]
+        card.quick_facts = []
+        card.source_note = None
+
+        with self.assertRaisesRegex(RuntimeError,"Text overflow for 'Goblin Warrior'"):
+            CardRenderer(root / "config" / "card_style.json")._prepare_minisheet(card)
+
+    def test_row_packing_supports_all_required_combinations(self):
+        small = lambda name: SimpleNamespace(card=SimpleNamespace(name=name),large=False)
+        large = lambda name: SimpleNamespace(card=SimpleNamespace(name=name),large=True)
+
+        four_normal = CardRenderer._pack_pages([small(str(i)) for i in range(4)])
+        mixed = CardRenderer._pack_pages([small("a"),small("b"),large("c")])
+        two_large = CardRenderer._pack_pages([large("a"),large("b")])
+
+        self.assertEqual([len(row) for row in four_normal[0]],[2,2])
+        self.assertEqual([len(row) for row in mixed[0]],[2,1])
+        self.assertEqual([len(row) for row in two_large[0]],[1,1])
+
+    def test_row_packing_pulls_forward_next_normal_to_fill_open_quadrant(self):
+        small = lambda name: SimpleNamespace(card=SimpleNamespace(name=name),large=False)
+        large = lambda name: SimpleNamespace(card=SimpleNamespace(name=name),large=True)
+
+        pages = CardRenderer._pack_pages([
+            small("Acolyte"),large("Banshee"),small("Bandit"),large("Revenant")
+        ])
+
+        self.assertEqual(
+            [[[item.card.name for item in row] for row in page] for page in pages],
+            [[
+                ["Acolyte","Bandit"],
+                ["Banshee"],
+            ],[
+                ["Revenant"],
+            ]],
         )
-        card = SimpleNamespace(
-            name="Flow Test",
-            quick_facts=["Init +2"],
-            blocks=[RuleBlock("Long Feature:", text)],
-            overflow=[],
-            source_note=None,
-        )
 
-        _measurement_renderer()._prepare_block_flow(card)
-
-        self.assertEqual(len(card.blocks), 1)
-        self.assertEqual(len(card.overflow), 1)
-        self.assertEqual(card.overflow[0].title, "Long Feature (cont.):")
-        self.assertTrue(card.blocks[0].text.endswith("."))
-        self.assertEqual(f"{card.blocks[0].text} {card.overflow[0].text}", text)
-
-    def test_long_back_title_wraps_before_explanatory_text(self):
+    def test_two_large_minisheets_share_one_page_without_vertical_cuts(self):
+        large = lambda name: SimpleNamespace(card=SimpleNamespace(name=name),large=True)
+        pages = CardRenderer._pack_pages([large("Banshee"),large("Revenant")])
         renderer = _measurement_renderer()
-        block = RuleBlock(
-            "Bonus Action - Trampling Charge (Recharge 5–6) (cont.):",
-            "Each creature whose space the centaur enters must make a saving throw.",
-        )
 
-        title_lines, title_width, body_lines, inline = renderer._back_inline_layout(block)
-        available_width = (renderer.W-62)-22
-        body_size = renderer.sizes["body"]
-
-        self.assertFalse(inline)
-        self.assertEqual(title_width, 0)
-        self.assertGreater(len(title_lines), 1)
-        self.assertTrue(all(
-            stringWidth(line,renderer.fonts["bold"],body_size) <= available_width
-            for line in title_lines
-        ))
-        self.assertTrue(all(
-            stringWidth(line,renderer.fonts["regular"],body_size) <= available_width
-            for line, _ in body_lines
-        ))
-
-    def test_back_font_decreases_in_one_point_steps_until_all_text_fits(self):
-        renderer = _measurement_renderer()
-        card = SimpleNamespace(
-            name="Adaptive Back Test",
-            quick_facts=[],
-            blocks=[],
-            overflow=[RuleBlock("Feature:", "word "*275)],
-            source_note=None,
-        )
-
-        self.assertFalse(renderer._back_fit(card,8.5)[0])
-        self.assertTrue(renderer._back_fit(card,7.5)[0])
-
-        renderer._prepare_block_flow(card)
-
-        self.assertEqual(renderer._back_size_for(card),7.5)
+        self.assertEqual(len(pages),1)
+        self.assertEqual(len(pages[0]),2)
+        self.assertEqual(renderer._trim_guide_segments(
+            top_is_normal=False,bottom_is_normal=False,
+        ),[
+            (0.0,5.5*72,8.5*72,5.5*72),
+        ])
 
 
 if __name__ == "__main__":

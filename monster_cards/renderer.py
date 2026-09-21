@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
@@ -16,18 +18,26 @@ from .model import ABILITIES, MonsterCard, RuleBlock
 from .util import signed
 
 
+@dataclass
+class PreparedMinisheet:
+    """A measured one-sided monster sheet and its selected physical size."""
+
+    card: MonsterCard
+    large: bool
+    body_size: float
+    column_split: int | None = None
+
+
 class CardRenderer:
-    """Render measured monster cards onto foldable, physical PDF sheets.
+    """Render measured one-sided monster minisheets onto Letter pages.
 
     Coordinates use ReportLab points with (0, 0) at the lower-left of the
-    current card panel. `render()` translates that local drawing twice per card
-    spread, so front/back drawing stays independent of sheet placement.
+    logical portrait minisheet. Large sheets are rotated only during imposition.
     """
 
     # These are intrinsic properties of the four vector shapes. Their configured
     # height may change, but their width-to-height proportions never do.
     PRIMARY_STAT_REFERENCE_HEIGHT = 42
-    BODY_LINE_HEIGHT_MULTIPLIER = 1.34
     PRIMARY_STAT_ASPECT_RATIOS = {
         "ac": 46/PRIMARY_STAT_REFERENCE_HEIGHT,
         "hp": 43/PRIMARY_STAT_REFERENCE_HEIGHT,
@@ -44,6 +54,10 @@ class CardRenderer:
         self.PAGE_H = self.sheet.page_height
         self.W = self.sheet.card_width
         self.H = self.sheet.card_height
+        self.NORMAL_W = self.sheet.card_width
+        self.NORMAL_H = self.sheet.card_height
+        self.LARGE_W = self.sheet.large_card_width
+        self.LARGE_H = self.sheet.large_card_height
         self.M = self.sheet.artwork_inset
         self.layout = self.style["layout"]
         self.front_header = self.layout["front_header"]
@@ -101,18 +115,14 @@ class CardRenderer:
             raise ValueError(
                 "layout.quick_facts.horizontal_padding_width_percent must be between 0 and 50"
             )
-        self.back = self.layout["back"]
-        self.back_edge_band = float(self.back["edge_band_in"]) * PT_PER_IN
-        if self.back_edge_band <= self.M:
-            raise ValueError("layout.back.edge_band_in must exceed margin_pt / 72")
         self.colors = {
             name: self._parse_color(name,value)
             for name,value in self.style["colors"].items()
         }
         self.sizes = self.style["sizes"]
+        self.body_size = float(self.sizes["body"])
+        self.large_columns = self.layout["large_columns"]
         self.c: canvas.Canvas | None = None
-        self._back_body_sizes: dict[int, float] = {}
-        self._fact_flow_prepared: set[int] = set()
 
     @staticmethod
     def _parse_color(name: str, value: object) -> Color | None:
@@ -129,74 +139,96 @@ class CardRenderer:
         return sorted(cards,key=lambda card: (card.name.casefold(),card.name))
 
     def render(self, cards: Iterable[MonsterCard], output: str | Path) -> Path:
-        """Measure all text, then place up to two complete spreads on each sheet."""
-        cards = self._ordered_cards(cards)
-        # Text flow mutates a card into front blocks and back overflow before any
-        # ink is drawn. That avoids silent clipping caused by draw-as-you-go code.
-        for card in cards:
-            self._prepare_block_flow(card)
+        """Measure, size, pack, and render one-sided minisheets."""
+        prepared = [self._prepare_minisheet(card) for card in self._ordered_cards(cards)]
+        pages = self._pack_pages(prepared)
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
         self.c = canvas.Canvas(str(output), pagesize=(self.PAGE_W, self.PAGE_H))
-        self.c.setTitle("Monster Cards")
-        # First card goes at the top, second at the bottom. An odd final card
-        # deliberately leaves the bottom slot blank for the physical workflow.
-        for index in range(0,len(cards),2):
-            self._draw_spread(cards[index],top=True)
-            if index+1 < len(cards):
-                self._draw_spread(cards[index+1],top=False)
-            self._draw_discard_hatching()
-            self._draw_trim_guides()
+        self.c.setTitle("Monster Minisheets")
+        for rows in pages:
+            for index, row in enumerate(rows):
+                self._draw_row(row, top=index == 0)
+            top_is_normal = bool(rows and not rows[0][0].large)
+            bottom_is_normal = bool(len(rows) > 1 and not rows[1][0].large)
+            self._draw_trim_guides(
+                top_is_normal=top_is_normal,
+                bottom_is_normal=bottom_is_normal,
+            )
             self.c.showPage()
         self.c.save()
         self.c = None
         return output
 
-    def _spread_origin(self, top: bool) -> tuple[float,float]:
-        return self.sheet.spread_origin(top)
+    @staticmethod
+    def _pack_pages(
+        minisheets: list[PreparedMinisheet],
+    ) -> list[list[list[PreparedMinisheet]]]:
+        """Fill normal rows with forward lookahead; large sheets own their rows.
 
-    def _draw_spread(self, card: MonsterCard, top: bool) -> None:
-        """Draw a front/back pair that shares its long-edge fold at `self.W`."""
+        Cards arrive alphabetized. If a large sheet interrupts two normal
+        sheets, the later normal sheet is pulled forward to avoid wasting the
+        first normal row's second quadrant.
+        """
+        rows: list[list[PreparedMinisheet]] = []
+        consumed: set[int] = set()
+        for index,minisheet in enumerate(minisheets):
+            if index in consumed:
+                continue
+            if minisheet.large:
+                rows.append([minisheet])
+                continue
+
+            partner_index = next(
+                (
+                    candidate
+                    for candidate in range(index+1,len(minisheets))
+                    if candidate not in consumed and not minisheets[candidate].large
+                ),
+                None,
+            )
+            row = [minisheet]
+            if partner_index is not None:
+                row.append(minisheets[partner_index])
+                consumed.add(partner_index)
+            rows.append(row)
+        return [rows[index:index + 2] for index in range(0, len(rows), 2)]
+
+    def _use_size(self, *, large: bool) -> None:
+        self.W = self.LARGE_W if large else self.NORMAL_W
+        self.H = self.LARGE_H if large else self.NORMAL_H
+
+    def _draw_row(self, row: list[PreparedMinisheet], top: bool) -> None:
+        """Draw one full-width physical row with one large or up to two normals."""
         c = self.c; assert c
-        x,y = self._spread_origin(top)
-        c.saveState(); c.translate(x,y); self._draw_front(card); c.restoreState()
-        c.saveState(); c.translate(x+self.W,y); self._draw_back(card); c.restoreState()
-
-    def _trim_guide_segments(self) -> list[tuple[float,float,float,float]]:
-        """Solid guides for the two physical cuts made after folding the sheet."""
-        return self.sheet.trim_guide_segments()
-
-    def _discard_regions(self) -> list[tuple[float,float,float,float]]:
-        return self.sheet.discard_regions()
-
-    def _crosshatch_rect(self, x: float, y: float, width: float, height: float) -> None:
-        """Clip a light X-hatch to a discard region without touching card artwork."""
-        c = self.c; assert c
-        spacing = float(self.layout["discard_hatch_spacing_pt"])
-        c.saveState()
-        clip = c.beginPath(); clip.rect(x,y,width,height)
-        c.clipPath(clip,stroke=0,fill=0)
-        color = self.colors["discard_hatch"]
-        if color is None:
+        y = self.sheet.row_origin_y(top)
+        if row[0].large:
+            self._use_size(large=True)
+            # The logical 5.5 x 8.5 portrait sheet is rotated clockwise into an
+            # 8.5 x 5.5 row. Its header therefore appears at the row's right edge.
+            c.saveState()
+            c.translate(0, y + self.sheet.row_height)
+            c.rotate(-90)
+            self._draw_minisheet(row[0])
             c.restoreState()
             return
-        c.setStrokeColor(color)
-        c.setLineWidth(float(self.layout["discard_hatch_line_width_pt"]))
-        start = x-height
-        end = x+width+height
-        position = start
-        while position <= end:
-            c.line(position,y,position+height,y+height)
-            c.line(position,y+height,position+height,y)
-            position += spacing
-        c.restoreState()
 
-    def _draw_discard_hatching(self) -> None:
-        # Hatching is drawn before the darker cut guides, preserving their meaning.
-        for region in self._discard_regions():
-            self._crosshatch_rect(*region)
+        self._use_size(large=False)
+        for column, minisheet in enumerate(row):
+            c.saveState()
+            c.translate(column * self.NORMAL_W, y)
+            self._draw_minisheet(minisheet)
+            c.restoreState()
 
-    def _draw_trim_guides(self) -> None:
+    def _trim_guide_segments(
+        self, *, top_is_normal: bool, bottom_is_normal: bool
+    ) -> list[tuple[float,float,float,float]]:
+        return self.sheet.trim_guide_segments(
+            top_is_normal=top_is_normal,
+            bottom_is_normal=bottom_is_normal,
+        )
+
+    def _draw_trim_guides(self, *, top_is_normal: bool, bottom_is_normal: bool) -> None:
         c = self.c; assert c
         c.saveState()
         color = self.colors["trim_guide"]
@@ -205,7 +237,10 @@ class CardRenderer:
             return
         c.setStrokeColor(color)
         c.setLineWidth(float(self.layout["trim_guide_width_pt"]))
-        for x1,y1,x2,y2 in self._trim_guide_segments():
+        for x1,y1,x2,y2 in self._trim_guide_segments(
+            top_is_normal=top_is_normal,
+            bottom_is_normal=bottom_is_normal,
+        ):
             c.line(x1,y1,x2,y2)
         c.restoreState()
 
@@ -676,169 +711,18 @@ class CardRenderer:
         )
         return y-height
 
-    def _block_layout(self, block: RuleBlock):
+    def _block_layout(self, block: RuleBlock, width: float | None = None):
         """Wrap a front rule block, reserving first-line space for its bold title."""
-        size = self.sizes["body"]
-        x = self.M+7; right = self.W-self.M-7
-        titlew = stringWidth(block.title,self.fonts["bold"],size)+4
-        firstw = max(20,right-(x+titlew))
-        words = block.text.split(); lines=[]; cur=""; first_line=True
-        while words:
-            word=words.pop(0); test=(cur+" "+word).strip(); limit=firstw if first_line else right-x
-            if stringWidth(test,self.fonts["regular"],size)<=limit:
-                cur=test
-            else:
-                if cur:
-                    lines.append((cur,first_line)); first_line=False; cur=word
-                else:
-                    lines.append((word,first_line)); first_line=False; cur=""
-        if cur: lines.append((cur,first_line))
-        return titlew, lines
-
-    def _block_height(self, block: RuleBlock) -> float:
-        _, lines = self._block_layout(block)
-        return 12 + len(lines) * self.sizes["body"] * 1.34
-
-    def _block(self, y: float, block: RuleBlock, divider=True) -> float:
-        c = self.c; assert c
-        size = self.sizes["body"]
-        x = self.M+7; right = self.W-self.M-7
-        if divider:
-            self._line(
-                x,y+4,right,y+4,width=.45,
-                color=self.colors["rule_block_divider"],
-            )
-        title_color = self.colors["rule_block_title_text"]
-        if title_color is not None:
-            c.setFillColor(title_color); c.setFont(self.fonts["bold"],size); c.drawString(x,y-8,block.title)
-        titlew, lines = self._block_layout(block)
-        yy=y-8
-        body_color = self.colors["rule_block_body_text"]
-        for text,is_first in lines:
-            if body_color is not None:
-                c.setFillColor(body_color); c.setFont(self.fonts["regular"],size); c.drawString(x+titlew if is_first else x,yy,text)
-            yy-=size*1.34
-        return yy-4
-
-    def _front_block_top(self, card: MonsterCard) -> float:
-        y = self._dashboard_bottom()
-        if card.quick_facts:
-            y -= self.quick_facts_band_height
-        return y-7
-
-    def _back_body_leading(self, body_size: float) -> float:
-        return body_size*self.BODY_LINE_HEIGHT_MULTIPLIER
-
-    def _back_frame_width(self) -> float:
-        return self.W-2*self.back_edge_band
-
-    def _back_body_horizontal_padding(self) -> float:
-        return (
-            self._back_frame_width()
-            *float(self.back["body_horizontal_padding_width_percent"])/100
-        )
-
-    def _back_source_note_leading(self) -> float:
-        return (
-            float(self.sizes["source_note"])
-            *float(self.back["source_note_line_height_percent"])/100
-        )
-
-    def _back_source_note_horizontal_padding(self) -> float:
-        return (
-            self._back_frame_width()
-            *float(self.back["source_note_horizontal_padding_width_percent"])/100
-        )
-
-    def _back_text_width(self) -> float:
-        """Return back body width after frame-relative horizontal padding."""
-        return self._back_frame_width()-2*self._back_body_horizontal_padding()
-
-    def _back_source_note_width(self) -> float:
-        return (
-            self._back_frame_width()-2*self._back_source_note_horizontal_padding()
-        )
-
-    def _back_text_start(self, body_size: float) -> float:
-        """Anchor back text below the inset frame by a body-text-relative gap."""
-        padding = (
-            self._back_body_leading(body_size)
-            *float(self.back["text_top_padding_line_percent"])/100
-        )
-        return self.H-self.back_edge_band-padding
-
-    def _back_edge_label_size(self, edge: str) -> float:
-        """Fit an edge label inside both the physical band and its long-side span."""
-        band_capacity = self.back_edge_band-self.M-float(self.back["frame_line_width_pt"])/2
-        minimum = float(self.sizes["edge_label_min"])
-        if band_capacity < minimum:
-            raise RuntimeError(
-                "The back edge band is too narrow for the minimum edge-label font size"
-            )
-        # Start at a deliberately generous maximum and back off only when the
-        # physical band or the label's long edge requires it. The label therefore
-        # grows with a wider band instead of staying at a legacy fixed size.
-        size = min(float(self.sizes["edge_label_max"]), band_capacity)
-        while size > minimum:
-            ascent, descent = getAscentDescent(self.fonts["bold"], size)
-            if ascent-descent <= band_capacity:
-                break
-            size -= .25
-        ascent, descent = getAscentDescent(self.fonts["bold"], size)
-        if ascent-descent > band_capacity:
-            raise RuntimeError(
-                "The back edge band is too narrow for the minimum edge-label font size"
-            )
-        return self._fit(edge,self.W-2*self.back_edge_band,size,minimum,"bold")
-
-    def _back_edge_label_baseline(self, size: float) -> float:
-        """Center the actual glyph bounds in the safe portion of the edge band."""
-        ascent, descent = getAscentDescent(self.fonts["bold"], size)
-        label_floor = self.M
-        label_ceiling = self.back_edge_band-float(self.back["frame_line_width_pt"])/2
-        return (label_floor+label_ceiling-ascent-descent)/2
-
-    def _back_text_floor(self, card: MonsterCard, body_size: float | None = None) -> float:
-        size = float(self.sizes["body"] if body_size is None else body_size)
-        bottom_padding = (
-            self._back_body_leading(size)
-            *float(self.back["text_bottom_padding_line_percent"])/100
-        )
-        if not card.source_note:
-            return self.back_edge_band+bottom_padding
-        note_size = self.sizes["source_note"]
-        note_leading = self._back_source_note_leading()
-        lines = simpleSplit(
-            card.source_note,self.fonts["regular"],note_size,self._back_source_note_width()
-        )
-        top_baseline = self.back_edge_band+bottom_padding+note_leading*(len(lines)-1)
-        clearance = (
-            self._back_body_leading(size)
-            *float(self.back["source_note_clearance_line_percent"])/100
-        )
-        return top_baseline+clearance
-
-    def _back_block_height(self, block: RuleBlock, size: float | None = None) -> float:
-        size = float(self.sizes["body"] if size is None else size)
-        leading = self._back_body_leading(size)
-        if block.meta:
-            lines = simpleSplit(block.text,self.fonts["regular"],size,self._back_text_width())
-            return 27 + len(lines)*leading
-        title_lines, _, lines, inline = self._back_inline_layout(block,size)
-        if inline:
-            return 5 + max(1, len(lines))*leading
-        return 5 + (len(title_lines)+len(lines))*leading
-
-    def _back_inline_layout(self, block: RuleBlock, size: float | None = None):
-        """Wrap a back block, moving unusually long titles onto their own lines."""
-        size = float(self.sizes["body"] if size is None else size)
-        width = self._back_text_width()
+        size = self.body_size
+        if width is None:
+            width = self.W-2*self.M-14
         titlew = stringWidth(block.title,self.fonts["bold"],size)+4
         if titlew > width-20:
             title_lines = simpleSplit(block.title,self.fonts["bold"],size,width)
-            body_lines = [(line, False) for line in simpleSplit(block.text,self.fonts["regular"],size,width)]
-            return title_lines, 0, body_lines, False
-
+            body_lines = simpleSplit(block.text,self.fonts["regular"],size,width)
+            self._require_lines_fit(title_lines,"bold",size,width,block.title)
+            self._require_lines_fit(body_lines,"regular",size,width,block.title)
+            return title_lines,0,[(line,False) for line in body_lines],False
         firstw = max(20,width-titlew)
         words = block.text.split(); lines=[]; cur=""; first_line=True
         while words:
@@ -849,23 +733,114 @@ class CardRenderer:
                 if cur:
                     lines.append((cur,first_line)); first_line=False; cur=word
                 else:
-                    lines.append((word,first_line)); first_line=False; cur=""
-        if cur:
-            lines.append((cur,first_line))
-        return [block.title], titlew, lines, True
+                    if stringWidth(word,self.fonts["regular"],size) > width:
+                        raise RuntimeError(
+                            f"Rule text in {block.title!r} has a word wider than its column"
+                        )
+                    first_line=False; cur=word
+        if cur: lines.append((cur,first_line))
+        return [block.title],titlew,lines,True
 
-    def _back_size_for(self, card: MonsterCard) -> float:
-        return getattr(self,"_back_body_sizes",{}).get(id(card),float(self.sizes["body"]))
+    def _require_lines_fit(
+        self, lines: list[str], font: str, size: float, width: float, context: str
+    ) -> None:
+        if any(stringWidth(line,self.fonts[font],size) > width for line in lines):
+            raise RuntimeError(f"Text in {context!r} is wider than its column")
 
-    def _back_fit(self, card: MonsterCard, size: float):
-        y = self._back_text_start(size)
-        floor = self._back_text_floor(card,size)
-        for block in card.overflow:
-            next_y = y-self._back_block_height(block,size)
-            if next_y < floor:
-                return False,block,floor-next_y
-            y = next_y
-        return True,None,0.0
+    def _block_height(self, block: RuleBlock, width: float | None = None) -> float:
+        if width is None:
+            width = self.W-2*self.M-14
+        if block.meta:
+            size = self.body_size
+            title_lines = simpleSplit(block.title,self.fonts["bold"],size,width)
+            meta_lines = simpleSplit(block.meta,self.fonts["bold"],size,width)
+            body_lines = simpleSplit(block.text,self.fonts["regular"],size,width)
+            self._require_lines_fit(title_lines,"bold",size,width,block.title)
+            self._require_lines_fit(meta_lines,"bold",size,width,block.meta)
+            self._require_lines_fit(body_lines,"regular",size,width,block.title)
+            return 12 + (len(title_lines)+len(meta_lines)+len(body_lines))*size*1.34
+        title_lines,_,lines,inline = self._block_layout(block,width)
+        line_count = max(1,len(lines)) if inline else len(title_lines)+len(lines)
+        return 12 + line_count * self.body_size * 1.34
+
+    def _block(
+        self, y: float, block: RuleBlock, divider=True,
+        left: float | None = None, right: float | None = None,
+    ) -> float:
+        c = self.c; assert c
+        size = self.body_size
+        x = self.M+7 if left is None else left
+        right = self.W-self.M-7 if right is None else right
+        if divider:
+            self._line(
+                x,y+4,right,y+4,width=.45,
+                color=self.colors["rule_block_divider"],
+            )
+        title_color = self.colors["rule_block_title_text"]
+        body_color = self.colors["rule_block_body_text"]
+        if block.meta:
+            width = right-x
+            leading = size*1.34
+            yy = y-8
+            for text in simpleSplit(block.title,self.fonts["bold"],size,width):
+                if title_color is not None:
+                    c.setFillColor(title_color); c.setFont(self.fonts["bold"],size)
+                    c.drawString(x,yy,text)
+                yy -= leading
+            for text in simpleSplit(block.meta,self.fonts["bold"],size,width):
+                if title_color is not None:
+                    c.setFillColor(title_color); c.setFont(self.fonts["bold"],size)
+                    c.drawString(x,yy,text)
+                yy -= leading
+            for text in simpleSplit(block.text,self.fonts["regular"],size,width):
+                if body_color is not None:
+                    c.setFillColor(body_color); c.setFont(self.fonts["regular"],size)
+                    c.drawString(x,yy,text)
+                yy -= leading
+            return yy-4
+        title_lines,titlew,lines,inline = self._block_layout(block,right-x)
+        yy=y-8
+        if inline:
+            if title_color is not None:
+                c.setFillColor(title_color); c.setFont(self.fonts["bold"],size)
+                c.drawString(x,yy,block.title)
+            for text,is_first in lines:
+                if body_color is not None:
+                    c.setFillColor(body_color); c.setFont(self.fonts["regular"],size)
+                    c.drawString(x+titlew if is_first else x,yy,text)
+                yy-=size*1.34
+        else:
+            for text in title_lines:
+                if title_color is not None:
+                    c.setFillColor(title_color); c.setFont(self.fonts["bold"],size)
+                    c.drawString(x,yy,text)
+                yy-=size*1.34
+            for text,_ in lines:
+                if body_color is not None:
+                    c.setFillColor(body_color); c.setFont(self.fonts["regular"],size)
+                    c.drawString(x,yy,text)
+                yy-=size*1.34
+        return yy-4
+
+    def _front_block_top(self, card: MonsterCard) -> float:
+        y = self._dashboard_bottom()
+        if card.quick_facts:
+            y -= self.quick_facts_band_height
+        return y-7
+
+    def _source_note_layout(self, card: MonsterCard) -> tuple[list[str], float]:
+        """Return source-note lines and their baseline spacing on one face."""
+        if not card.source_note:
+            return [],0.0
+        size = float(self.sizes["source_note"])
+        width = self.W-2*self.M-14
+        return simpleSplit(card.source_note,self.fonts["regular"],size,width),size*1.17
+
+    def _content_floor(self, card: MonsterCard) -> float:
+        lines,leading = self._source_note_layout(card)
+        if not lines:
+            return self.M
+        return self.M+4+len(lines)*leading
 
     @staticmethod
     def _fact_rule_block(fact: str) -> RuleBlock:
@@ -880,13 +855,6 @@ class CardRenderer:
 
     def _prepare_fact_flow(self, card: MonsterCard) -> None:
         """Promote overflowing quick facts into normal, labeled front rule blocks."""
-        prepared = getattr(self,"_fact_flow_prepared",None)
-        if prepared is None:
-            self._fact_flow_prepared = set()
-            prepared = self._fact_flow_prepared
-        if id(card) in prepared:
-            return
-
         facts = list(card.quick_facts)
         moved: list[str] = []
         width = self.W-2*self.M
@@ -903,83 +871,95 @@ class CardRenderer:
         card.quick_facts = facts
         if moved:
             card.blocks = [self._fact_rule_block(fact) for fact in moved]+card.blocks
-        prepared.add(id(card))
 
-    @staticmethod
-    def _continuation_title(title: str) -> str:
-        base = title.rstrip(":")
-        if base.endswith(" (cont.)"):
-            return f"{base}:"
-        return f"{base} (cont.):" if base else "(cont.):"
-
-    def _split_block_to_fit(self, block: RuleBlock, max_height: float):
-        """Return the largest readable prefix that fits and its continuation."""
-        text = block.text.strip()
-        if not text:
-            return None
-
-        # Prefer complete sentences. If none fit, back off through word boundaries.
-        sentence_boundaries = [
-            match.end() for match in re.finditer(r"[.!?](?:['\"])?\s+(?=[A-Z])", text)
-        ]
-        word_boundaries = [match.start() for match in re.finditer(r"\s+", text)]
-        for boundaries in (sentence_boundaries, word_boundaries):
-            for boundary in reversed(boundaries):
-                prefix_text = text[:boundary].strip()
-                remainder_text = text[boundary:].strip()
-                if not remainder_text or len(prefix_text.split()) < 3:
-                    continue
-                prefix = RuleBlock(block.title, prefix_text, block.kind, block.meta)
-                if self._block_height(prefix) <= max_height:
-                    remainder = RuleBlock(
-                        self._continuation_title(block.title), remainder_text, block.kind, block.meta
-                    )
-                    return prefix, remainder
-        return None
-
-    def _prepare_block_flow(self, card: MonsterCard):
-        """Measure before drawing; split/move front overflow and fit the back safely."""
-        self._prepare_fact_flow(card)
-        y = self._front_block_top(card)
-        front: list[RuleBlock] = []
-        carried: list[RuleBlock] = []
-        for index, block in enumerate(card.blocks):
-            next_y = y-self._block_height(block)
-            if next_y < 24:
-                split = self._split_block_to_fit(block, y-24)
-                if split:
-                    prefix, remainder = split
-                    front.append(prefix)
-                    carried.append(remainder)
-                    carried.extend(card.blocks[index+1:])
-                else:
-                    carried.extend(card.blocks[index:])
-                break
-            front.append(block)
-            y = next_y
-
-        card.blocks = front
-        card.overflow = carried+card.overflow
-
-        # The back uses the front body size first, then only whole one-point
-        # reductions. This preserves readability and makes a size change predictable.
-        size = float(self.sizes["body"])
-        while size >= .5:
-            fits,block,excess = self._back_fit(card,size)
-            if fits:
-                if not hasattr(self,"_back_body_sizes"):
-                    self._back_body_sizes = {}
-                self._back_body_sizes[id(card)] = size
-                return
-            size -= 1
-
-        title = (block.title if block else "untitled block") or "untitled block"
-        raise RuntimeError(
-            f"Text overflow for {card.name!r}: {title!r} does not fit on the back "
-            f"even at 0.5 pt ({excess:.1f} pt too tall)"
+    def _column_bounds(self) -> tuple[tuple[float,float],tuple[float,float]]:
+        gutter = float(self.large_columns["gutter_in"])*PT_PER_IN
+        center = self.W/2
+        return (
+            (self.M+7,center-gutter/2),
+            (center+gutter/2,self.W-self.M-7),
         )
 
-    def _draw_front(self, card: MonsterCard):
+    def _prepare_for_current_size(
+        self, card: MonsterCard, *, columns: int = 1
+    ) -> tuple[bool, float, int | None]:
+        """Measure a complete one-sided sheet at the currently selected size."""
+        # Older inputs may explicitly place operational details in `overflow`.
+        # On a one-sided minisheet they follow the ordinary blocks in full.
+        card.blocks = list(card.blocks)+list(card.overflow)
+        card.overflow = []
+        self._prepare_fact_flow(card)
+        self._front_header_layout(card)
+        y = self._front_block_top(card)
+        floor = self._content_floor(card)
+        if columns == 1 or len(card.blocks) < 2:
+            for block in card.blocks:
+                y -= self._block_height(block)
+            return y >= floor,max(0.0,floor-y),None
+
+        bounds = self._column_bounds()
+        widths = [right-left for left,right in bounds]
+        heights = [
+            [self._block_height(block,width) for block in card.blocks]
+            for width in widths
+        ]
+        available = y-floor
+        candidates = []
+        for split in range(1,len(card.blocks)):
+            left_height = sum(heights[0][:split])
+            right_height = sum(heights[1][split:])
+            candidates.append((max(left_height,right_height),split,left_height,right_height))
+        used,split,left_height,right_height = min(candidates)
+        return used <= available,max(0.0,used-available),split
+
+    def _prepare_minisheet(self, source: MonsterCard) -> PreparedMinisheet:
+        """Choose normal unless complete measured content requires large."""
+        errors: list[str] = []
+        preferred = float(self.sizes["body"])
+        minimum = float(self.large_columns["body_min_size_pt"])
+        attempts = [(False,preferred,1)]
+        size = preferred
+        while size >= minimum:
+            attempts.extend(((True,size,1),(True,size,2)))
+            size -= 1
+        for large,body_size,columns in attempts:
+            self._use_size(large=large)
+            self.body_size = body_size
+            card = deepcopy(source)
+            try:
+                fits,excess,split = self._prepare_for_current_size(card,columns=columns)
+            except RuntimeError as exc:
+                errors.append(str(exc))
+                continue
+            if fits:
+                return PreparedMinisheet(
+                    card=card,large=large,body_size=body_size,
+                    column_split=split if columns == 2 else None,
+                )
+            errors.append(f"content is {excess:.1f} pt too tall")
+        detail = errors[-1] if errors else "content does not fit"
+        raise RuntimeError(
+            f"Text overflow for {source.name!r}: {detail} on a 5.5 x 8.5 inch minisheet"
+        )
+
+    def _draw_source_note(self, card: MonsterCard) -> None:
+        c = self.c; assert c
+        lines,leading = self._source_note_layout(card)
+        if not lines:
+            return
+        size = float(self.sizes["source_note"])
+        color = self.colors["source_note_text"]
+        if color is None:
+            return
+        c.setFillColor(color); c.setFont(self.fonts["regular"],size)
+        yy = self.M+4+(len(lines)-1)*leading
+        for line in lines:
+            c.drawCentredString(self.W/2,yy,line)
+            yy -= leading
+
+    def _draw_minisheet(self, minisheet: PreparedMinisheet):
+        card = minisheet.card
+        self.body_size = minisheet.body_size
         self._fill_rect(
             self.M,self.M,self.W-2*self.M,self.H-2*self.M,
             self.colors["front_background"],
@@ -990,120 +970,21 @@ class CardRenderer:
             self.M,self.M,self.W-2*self.M,rule_blocks_top-self.M,
             self.colors["rule_blocks_background"],
         )
-        y=self._facts(y,card.quick_facts)
-        y-=7
-        drew_block = False
-        for block in card.blocks:
-            y = self._block(y,block,divider=drew_block)
-            drew_block = True
+        y=self._facts(y,card.quick_facts)-7
+        if minisheet.column_split is None:
+            for index,block in enumerate(card.blocks):
+                y = self._block(y,block,divider=index > 0)
+        else:
+            bounds = self._column_bounds()
+            groups = (
+                card.blocks[:minisheet.column_split],
+                card.blocks[minisheet.column_split:],
+            )
+            for (left,right),blocks in zip(bounds,groups):
+                yy = y
+                for index,block in enumerate(blocks):
+                    yy = self._block(
+                        yy,block,divider=index > 0,left=left,right=right,
+                    )
+        self._draw_source_note(card)
         self._outer()
-
-    @staticmethod
-    def _back_divider_y(previous_baseline: float, next_baseline: float) -> float:
-        """Center a divider in the whitespace between adjacent rule blocks."""
-        return (previous_baseline+next_baseline)/2
-
-    def _draw_back(self, card: MonsterCard):
-        c = self.c; assert c
-        body_size = self._back_size_for(card)
-        body_leading = self._back_body_leading(body_size)
-        body_padding = self._back_body_horizontal_padding()
-        top=self.H-self.back_edge_band; bot=self.back_edge_band
-        left=self.back_edge_band; right=self.W-self.back_edge_band
-        self._fill_rect(
-            self.M,self.M,self.W-2*self.M,self.H-2*self.M,
-            self.colors["back_edge_band_background"],
-        )
-        self._fill_rect(
-            left,bot,right-left,top-bot,self.colors["back_body_background"]
-        )
-        border = self.colors["back_border"]
-        if border is not None:
-            c.setStrokeColor(border)
-            c.setLineWidth(float(self.back["frame_line_width_pt"]))
-            c.rect(left,bot,right-left,top-bot,stroke=1,fill=0)
-        edge=f"{card.name.upper()} · CR {card.cr}"
-        # Font ascenders extend above a baseline, so center the glyph metrics—not
-        # the baseline itself—in the usable band between margin and inner frame.
-        edge_size = self._back_edge_label_size(edge)
-        edge_inset = self._back_edge_label_baseline(edge_size)
-        edge_color = self.colors["back_edge_label_text"]
-        if edge_color is not None:
-            c.setFillColor(edge_color); c.setFont(self.fonts["bold"],edge_size)
-            c.drawCentredString(self.W/2,edge_inset,edge)
-            c.saveState(); c.translate(self.W/2,self.H-edge_inset); c.rotate(180); c.drawCentredString(0,0,edge); c.restoreState()
-            # Corrected from the first prototype: both long-side labels rotated 180°.
-            c.saveState(); c.translate(edge_inset,self.H/2); c.rotate(-90); c.drawCentredString(0,0,edge); c.restoreState()
-            c.saveState(); c.translate(self.W-edge_inset,self.H/2); c.rotate(90); c.drawCentredString(0,0,edge); c.restoreState()
-
-        y=self._back_text_start(body_size)
-        previous_baseline: float | None = None
-        for block in card.overflow:
-            first_baseline = y-8 if block.meta else y-4
-            if previous_baseline is not None:
-                divider_y = self._back_divider_y(previous_baseline,first_baseline)
-                self._line(
-                    left+body_padding,divider_y,right-body_padding,divider_y,
-                    width=.45,color=self.colors["back_divider"],
-                )
-            if block.meta:
-                title_color = self.colors["back_rule_title_text"]
-                if title_color is not None:
-                    c.setFillColor(title_color); c.setFont(self.fonts["bold"],body_size)
-                    c.drawString(left+body_padding,y-8,block.title)
-                metadata_color = self.colors["back_metadata_text"]
-                if metadata_color is not None:
-                    c.setFont(self.fonts["bold"],6.4); c.setFillColor(metadata_color); c.drawRightString(right-body_padding,y-8,block.meta)
-                yy=y-21
-                body_color = self.colors["back_rule_body_text"]
-                last_baseline = y-8
-                for ln in simpleSplit(block.text,self.fonts["regular"],body_size,self._back_text_width()):
-                    if body_color is not None:
-                        c.setFillColor(body_color); c.setFont(self.fonts["regular"],body_size)
-                        c.drawString(left+body_padding,yy,ln)
-                    last_baseline=yy; yy-=body_leading
-                y=yy-6
-            else:
-                title_lines, titlew, lines, inline = self._back_inline_layout(block,body_size)
-                yy=y-4
-                title_color = self.colors["back_rule_title_text"]
-                body_color = self.colors["back_rule_body_text"]
-                last_baseline = yy
-                if inline:
-                    if title_color is not None:
-                        c.setFillColor(title_color); c.setFont(self.fonts["bold"],body_size); c.drawString(left+body_padding,yy,block.title)
-                    for text, is_first in lines:
-                        if body_color is not None:
-                            c.setFillColor(body_color); c.setFont(self.fonts["regular"],body_size)
-                            c.drawString(left+body_padding+titlew if is_first else left+body_padding,yy,text)
-                        last_baseline=yy; yy-=body_leading
-                else:
-                    for title_line in title_lines:
-                        if title_color is not None:
-                            c.setFillColor(title_color); c.setFont(self.fonts["bold"],body_size)
-                            c.drawString(left+body_padding,yy,title_line)
-                        last_baseline=yy; yy-=body_leading
-                    for text, _ in lines:
-                        if body_color is not None:
-                            c.setFillColor(body_color); c.setFont(self.fonts["regular"],body_size)
-                            c.drawString(left+body_padding,yy,text)
-                        last_baseline=yy; yy-=body_leading
-                y=yy-1
-            previous_baseline = last_baseline
-        if card.source_note:
-            note_size = self.sizes["source_note"]
-            note_leading = self._back_source_note_leading()
-            note_color = self.colors["source_note_text"]
-            lines=simpleSplit(
-                card.source_note,self.fonts["regular"],note_size,self._back_source_note_width()
-            )
-            bottom_padding = (
-                self._back_body_leading(body_size)
-                *float(self.back["text_bottom_padding_line_percent"])/100
-            )
-            yy=bot+bottom_padding+note_leading*(len(lines)-1)
-            for ln in lines:
-                if note_color is not None:
-                    c.setFillColor(note_color); c.setFont(self.fonts["regular"],note_size)
-                    c.drawCentredString(self.W/2,yy,ln)
-                yy-=note_leading

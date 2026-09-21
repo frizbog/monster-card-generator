@@ -43,7 +43,7 @@
     "blocks": [
       {"title": "Pact Blade:", "text": "+4 ATK · 5 ft. · 6 (1d8+2) slashing + 7 (2d6) necrotic."},
       {"title": "Spellcasting:", "text": "WIS · save DC 12 · +4 spell attacks. At will: Light, Thaumaturgy. 2/day: Command. 1/day: Hold Person."},
-      {"title": "Bonus Action - Spiritual Weapon (2/day):", "text": "Cast Spiritual Weapon. Operational spell text on reverse."}
+      {"title": "Bonus Action - Spiritual Weapon (2/day):", "text": "Cast Spiritual Weapon. Operational spell text appears below."}
     ],
     "overflow": [
       {"title": "COMMAND", "meta": "ACTION · 60 ft. · WIS DC 12", "text": "Operational summary goes here. Store tested summaries in overrides rather than re-summarizing every time."},

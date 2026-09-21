@@ -1,8 +1,10 @@
 {
   "page_width_in": 8.5,
   "page_height_in": 11,
-  "card_width_in": 3.5,
+  "card_width_in": 4.25,
   "card_height_in": 5.5,
+  "large_card_width_in": 5.5,
+  "large_card_height_in": 8.5,
   "margin_pt": 18,
   "layout": {
     "front_header": {
@@ -43,19 +45,11 @@
       "line_width_in": 0.011,
       "text_min_size_in": 0.08
     },
-    "trim_guide_width_pt": 0.7,
-    "discard_hatch_spacing_pt": 7,
-    "discard_hatch_line_width_pt": 0.45,
-    "back": {
-      "edge_band_in": 0.4,
-      "frame_line_width_pt": 0.8,
-      "body_horizontal_padding_width_percent": 4.7,
-      "source_note_horizontal_padding_width_percent": 4.2,
-      "text_top_padding_line_percent": 75,
-      "text_bottom_padding_line_percent": 70,
-      "source_note_clearance_line_percent": 53,
-      "source_note_line_height_percent": 117
-    }
+    "large_columns": {
+      "gutter_in": 0.14,
+      "body_min_size_pt": 6.5
+    },
+    "trim_guide_width_pt": 0.7
   },
   "colors": {
     "front_background": "none",
@@ -77,17 +71,8 @@
     "rule_block_title_text": "#263238",
     "rule_block_body_text": "#263238",
     "rule_block_divider": "#86979d",
-    "back_edge_band_background": "none",
-    "back_body_background": "none",
-    "back_border": "#36515b",
-    "back_edge_label_text": "#7d8589",
-    "back_rule_title_text": "#263238",
-    "back_rule_body_text": "#263238",
-    "back_metadata_text": "#52636a",
-    "back_divider": "#86979d",
     "source_note_text": "#7d8589",
-    "trim_guide": "#263238",
-    "discard_hatch": "#d7dfe2"
+    "trim_guide": "#263238"
   },
   "fonts": {
     "family": "Noto Sans",
@@ -97,8 +82,6 @@
   },
   "sizes": {
     "body": 8.5,
-    "edge_label_max": 24.0,
-    "edge_label_min": 5.0,
     "source_note": 4.7
   }
 }

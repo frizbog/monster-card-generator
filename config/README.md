@@ -29,22 +29,25 @@ pages measuring 8.5 by 11 inches.
 
 ### `card_width_in` and `card_height_in`
 
-The dimensions of one folded card panel. A spread is exactly two panels wide:
-the front is on the left and the back is on the right.
+The dimensions of one normal minisheet. The defaults are 4.25 by 5.5 inches,
+so four normal minisheets exactly tile a Letter page.
+
+### `large_card_width_in` and `large_card_height_in`
+
+The logical portrait dimensions of one large minisheet. The defaults are 5.5
+by 8.5 inches. The renderer rotates it into a complete 8.5-by-5.5-inch row.
 
 ### `margin_pt`
 
-The artwork inset from every card-panel edge. The default 18 points is 0.25
-inch. Ordinary card artwork must remain inside this inset.
+The artwork inset from every minisheet edge. The default 18 points is 0.25 inch.
 
 ## `layout`
 
-The `layout` object contains physical sheet marks and the responsive regions of
-the front and back faces.
+The `layout` object contains physical sheet marks and responsive content regions.
 
 ### `layout.front_header`
 
-Controls the header band at the top of the card front.
+Controls the header band at the top of a minisheet.
 
 - `height_in`: physical height of the complete header band.
 - `horizontal_padding_width_percent`: left and right padding, each measured as
@@ -135,40 +138,19 @@ Quick facts are measured as one centered line. When the complete line cannot fit
 at the minimum size, lower-priority facts are promoted into labeled rule blocks
 before traits and actions. Text is never silently discarded.
 
-### Sheet trim and discard fields
+### `layout.large_columns`
+
+- `gutter_in`: space between the two rule-text columns used when a large
+  minisheet still does not fit as one column.
+- `body_min_size_pt`: smallest permitted body size for that measured large-sheet
+  fallback. The renderer tries whole one-point decrements.
+
+### Sheet cut field
 
 - `trim_guide_width_pt`: stroke width of the solid cut guides.
-- `discard_hatch_spacing_pt`: distance between repeated discard hatch lines.
-- `discard_hatch_line_width_pt`: stroke width of discard hatch lines.
 
-Trim guides are dark and drawn over the lighter discard hatching. These fields
-affect mark styling, not the physical positions of the required cuts.
-
-### `layout.back`
-
-Controls the frame, edge labels, overflow text, and source note on the card back.
-
-- `edge_band_in`: physical distance from each card edge to the inset back frame.
-  It must be wider than the artwork inset so edge labels remain printable.
-- `frame_line_width_pt`: stroke width of the inset frame.
-- `body_horizontal_padding_width_percent`: left and right body-text padding,
-  each measured as a percentage of the inner frame width (`card_width_in` minus
-  two edge bands).
-- `source_note_horizontal_padding_width_percent`: equivalent frame-width-based
-  padding for the source note.
-- `text_top_padding_line_percent`: space below the frame before body text begins,
-  as a percentage of the current back body line height.
-- `text_bottom_padding_line_percent`: space above the frame's bottom edge, as a
-  percentage of the current back body line height.
-- `source_note_clearance_line_percent`: vertical clearance between source-note
-  content and body content, as a percentage of the current back body line
-  height.
-- `source_note_line_height_percent`: source-note line height as a percentage of
-  the source-note font size.
-
-Back body text starts at `sizes.body` and decreases only in whole one-point steps
-when necessary. The proportional body spacing follows that selected size. If all
-content still cannot fit, rendering ends with a clear overflow error.
+The horizontal center guide is always drawn. Vertical center guides are drawn
+only through rows containing normal minisheets.
 
 ## `colors`
 
@@ -177,8 +159,7 @@ value to `none` makes that fill, stroke, or text transparent. Color properties
 are named for the one visual role they control, so changing one does not
 recolor an unrelated part of the card.
 
-- `front_background` and `front_border`: base fill and outer frame of the card
-  front.
+- `front_background` and `front_border`: base fill and outer minisheet frame.
 - `header_band_background` and `header_band_text`: header fill and all text in
   the header.
 - `primary_stats_background`: background of the complete primary-stat region.
@@ -191,15 +172,8 @@ recolor an unrelated part of the card.
 - `rule_blocks_background`, `rule_block_title_text`,
   `rule_block_body_text`, and `rule_block_divider`: front rule-block area and
   its content.
-- `back_edge_band_background`: fill behind the repeated labels around the card
-  back.
-- `back_body_background` and `back_border`: fill and frame of the back's inner
-  body region.
-- `back_edge_label_text`, `back_rule_title_text`, `back_rule_body_text`,
-  `back_metadata_text`, `back_divider`, and `source_note_text`: individual back
-  text and divider roles.
-- `trim_guide` and `discard_hatch`: cutter-guide strokes and light crosshatching
-  in paper regions that will be discarded.
+- `source_note_text`: source attribution text.
+- `trim_guide`: cutter-guide strokes.
 
 ## `fonts`
 
@@ -216,12 +190,9 @@ contract: Black for names, Bold for labels, and Regular for prose.
 
 These remaining values are typographic point sizes.
 
-- `body`: front prose size and the initial back prose size. Back text may shrink
-  from this value in whole one-point steps when necessary.
-- `edge_label_max`: upper size limit for repeated labels around the card back.
-- `edge_label_min`: lower size limit for those edge labels. Their actual size is
-  also constrained by edge-band height and label width.
-- `source_note`: source-note font size on the card back.
+- `body`: preferred rule prose size. Normal minisheets always use this size;
+  large sheets may reduce it according to `layout.large_columns`.
+- `source_note`: source-note font size at the bottom of the minisheet.
 
 ## Editing guidance
 
