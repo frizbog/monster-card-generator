@@ -145,7 +145,18 @@ def _speeds(monster: dict[str, Any]) -> tuple[str, list[str]]:
         )
         primary_mode, primary_value = modes.pop(primary_index)
         extras = [f"{mode.title()} {_distance(value)}" for mode, value in modes]
-        return _distance(primary_value), extras
+        primary_distance = _distance(primary_value)
+        # The dashboard arrow is intentionally compact. Keep only the distance
+        # there and preserve the movement mode/qualifier in quick facts.
+        match = re.match(r"^(\d+(?:\.\d+)?')\s*(.*)$",primary_distance)
+        if match:
+            primary_distance,qualifier = match.groups()
+            if primary_mode.casefold() not in {"walk","walking"} or qualifier:
+                mode_fact = primary_mode.title()
+                if qualifier:
+                    mode_fact += f" {qualifier}"
+                extras.insert(0,mode_fact)
+        return primary_distance,extras
 
     parts = [part.strip() for part in re.split(r"\s*[,;]\s*", strip_markup(speed)) if part.strip()]
     if not parts:

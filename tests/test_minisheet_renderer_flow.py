@@ -30,6 +30,8 @@ def _measurement_minisheet_renderer() -> MinisheetRenderer:
     renderer.NORMAL_H = renderer.H
     renderer.LARGE_W = 5.5 * 72
     renderer.LARGE_H = 8.5 * 72
+    renderer.FULL_W = renderer.PAGE_W
+    renderer.FULL_H = renderer.PAGE_H
     renderer.M = 18
     printable_width = renderer.W-2*renderer.M
     renderer.layout = {
@@ -204,6 +206,16 @@ class MinisheetRendererFlowTests(unittest.TestCase):
         self.assertAlmostEqual(layout["center"],(shaft_left+shaft_right)/2)
         self.assertLess(layout["center"],cx)
 
+    def test_primary_stat_text_is_validated_before_drawing(self):
+        root = Path(__file__).resolve().parents[1]
+        minisheet = load_manual_minisheets(root / "examples" / "manual_monsters.json")[0]
+        minisheet.speed = "50' (hover)"
+
+        with self.assertRaisesRegex(RuntimeError,"Primary-stat icon text"):
+            MinisheetRenderer(
+                root / "config" / "minisheet_style.json"
+            )._prepare_minisheet(minisheet)
+
     def test_ability_band_uses_six_equal_columns_and_proportional_text(self):
         renderer = _measurement_minisheet_renderer()
         ability = SimpleNamespace(modifier=-1,score=16)
@@ -300,6 +312,21 @@ class MinisheetRendererFlowTests(unittest.TestCase):
         renderer.c.rotate.assert_called_once_with(-90)
         draw.assert_called_once_with(minisheet)
 
+    def test_full_page_sheet_is_portrait_and_unrotated(self):
+        renderer = _measurement_minisheet_renderer()
+        renderer.c = MagicMock()
+        sheet = SimpleNamespace(
+            large=False,full_page=True,minisheet=SimpleNamespace(name="Full Page")
+        )
+
+        with patch.object(renderer,"_draw_minisheet") as draw:
+            renderer._draw_full_page(sheet)
+
+        self.assertEqual((renderer.W,renderer.H),(8.5*72,11*72))
+        renderer.c.translate.assert_not_called()
+        renderer.c.rotate.assert_not_called()
+        draw.assert_called_once_with(sheet)
+
     def test_configured_dimensions_exactly_tile_letter_rows(self):
         root = Path(__file__).resolve().parents[1]
         style = json.loads((root / "config" / "minisheet_style.json").read_text())
@@ -346,14 +373,48 @@ class MinisheetRendererFlowTests(unittest.TestCase):
         self.assertEqual(len(large_sheet.minisheet.blocks),6)
         self.assertEqual(large_sheet.minisheet.overflow,[])
 
-    def test_content_that_exceeds_large_minisheet_reports_overflow(self):
+    def test_content_that_exceeds_large_promotes_to_full_page(self):
+        root = Path(__file__).resolve().parents[1]
+        minisheet = load_manual_minisheets(root / "examples" / "manual_monsters.json")[0]
+        minisheet.blocks = [RuleBlock("Dense Feature:","word "*1000)]
+        minisheet.quick_facts = []
+        minisheet.source_note = None
+
+        prepared = MinisheetRenderer(
+            root / "config" / "minisheet_style.json"
+        )._prepare_minisheet(minisheet)
+
+        self.assertFalse(prepared.large)
+        self.assertTrue(prepared.full_page)
+        self.assertEqual((prepared.minisheet.name,len(prepared.minisheet.blocks)),(
+            "Goblin Warrior",1,
+        ))
+
+    def test_full_page_render_has_no_cut_guides(self):
+        root = Path(__file__).resolve().parents[1]
+        minisheet = load_manual_minisheets(root / "examples" / "manual_monsters.json")[0]
+        minisheet.blocks = [RuleBlock("Dense Feature:","word "*1000)]
+        minisheet.quick_facts = []
+        minisheet.source_note = None
+        renderer = MinisheetRenderer(root / "config" / "minisheet_style.json")
+
+        with TemporaryDirectory() as directory, patch.object(
+            renderer,"_draw_trim_guides"
+        ) as draw_guides:
+            renderer.render([minisheet],Path(directory) / "full-page.pdf")
+
+        draw_guides.assert_not_called()
+
+    def test_content_that_exceeds_full_page_reports_overflow(self):
         root = Path(__file__).resolve().parents[1]
         minisheet = load_manual_minisheets(root / "examples" / "manual_monsters.json")[0]
         minisheet.blocks = [RuleBlock("Unbounded Feature:","word "*2500)]
         minisheet.quick_facts = []
         minisheet.source_note = None
 
-        with self.assertRaisesRegex(RuntimeError,"Text overflow for 'Goblin Warrior'"):
+        with self.assertRaisesRegex(
+            RuntimeError,"Text overflow for 'Goblin Warrior'.*8.5 x 11 inch full-page sheet"
+        ):
             MinisheetRenderer(root / "config" / "minisheet_style.json")._prepare_minisheet(minisheet)
 
     def test_row_packing_supports_all_required_combinations(self):
@@ -384,6 +445,23 @@ class MinisheetRendererFlowTests(unittest.TestCase):
             ],[
                 ["Revenant"],
             ]],
+        )
+
+    def test_full_page_sheet_is_a_standalone_packing_boundary(self):
+        small = lambda name: SimpleNamespace(
+            minisheet=SimpleNamespace(name=name),large=False,full_page=False
+        )
+        full = lambda name: SimpleNamespace(
+            minisheet=SimpleNamespace(name=name),large=False,full_page=True
+        )
+
+        pages = MinisheetRenderer._pack_pages([
+            small("Acolyte"),full("Strahd"),small("Zombie")
+        ])
+
+        self.assertEqual(
+            [[[item.minisheet.name for item in row] for row in page] for page in pages],
+            [[['Acolyte']],[['Strahd']],[['Zombie']]],
         )
 
     def test_two_large_minisheets_share_one_page_without_vertical_cuts(self):

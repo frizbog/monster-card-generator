@@ -12,10 +12,11 @@ PT_PER_IN = 72.0
 
 @dataclass(frozen=True)
 class SheetLayout:
-    """Configured dimensions for a Letter sheet and both minisheet sizes.
+    """Configured dimensions for a Letter page and both cut minisheet sizes.
 
     Normal minisheets occupy one quadrant. Large minisheets are authored in
-    portrait orientation, then rotated into one complete half-sheet row.
+    portrait orientation, then rotated into one complete half-sheet row. The
+    Letter page dimensions also define the unrotated full-page fallback.
     """
 
     page_width: float
@@ -67,7 +68,7 @@ class SheetLayout:
     def trim_guide_segments(
         self, *, top_is_normal: bool, bottom_is_normal: bool
     ) -> list[tuple[float, float, float, float]]:
-        """Return the center-row cut and only the applicable quadrant cuts."""
+        """Return cut guides for a page imposed from normal and large sheets."""
         segments = [(0.0, self.row_height, self.page_width, self.row_height)]
         center_x = self.page_width / 2
         if top_is_normal:

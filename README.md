@@ -11,7 +11,8 @@ The project deliberately keeps the **SRD data repository separate** from the **m
   11 inches**) with no special printer-driver setup.
 - Fits four ordinary **4.25 x 5.5 inch** minisheets per page. Content that does
   not fit promotes to a portrait **5.5 x 8.5 inch** minisheet, rotated into one
-  complete half-sheet row for printing.
+  complete half-sheet row for printing. Exceptionally dense stat blocks promote
+  once more to a full portrait **8.5 x 11 inch** Letter sheet.
 - Uses the v0.2/v0.3 visual grammar: teal identity header; AC/HP/Speed/PP
   dashboard; six abilities; flexible quick-facts strip; and flowing rules.
 - Uses **Noto Sans**. Ability modifiers are deliberately large; the old `MODIFIERS` and `Raw Scores` labels are gone.
@@ -338,10 +339,10 @@ The default 0.30-inch strip has slightly less vertical whitespace than the
 original fixed-height strip. Facts that cannot fit at the configured minimum
 text size continue to move into labeled rule blocks.
 
-Large-sheet fallback settings are collected under `layout.large_columns`.
-Dense large sheets can use two rule-text columns and reduce body text in whole
-one-point steps down to the configured minimum; the normal size never shrinks
-instead of promoting.
+Large-sheet fallback settings are collected under `layout.large_columns` and
+are reused by the full-page fallback. Dense large and full-page sheets can use
+two rule-text columns and reduce body text in whole one-point steps down to the
+configured minimum; the normal size never shrinks instead of promoting.
 
 As a general style convention for these responsive bands, absolute physical
 measurements use inches while internal geometry uses percentages of the named
@@ -419,9 +420,10 @@ The renderer knows nothing about the upstream SRD repository. If the upstream sc
 
 This is **v0.1 of the reusable code**, not a finished publishing engine. The
 renderer measures all text before drawing. It promotes content from a normal to
-a large minisheet, then may use two columns and one-point body-text reductions
-down to the configured minimum. If the complete content still cannot fit, it
-reports an explicit overflow error.
+a large minisheet and then, if necessary, to a full portrait Letter sheet.
+Large and full-page sheets may use two columns and one-point body-text reductions
+down to the configured minimum. If the complete content still cannot fit on the
+full page, it reports an explicit overflow error.
 
 That is intentional at this stage: use `--dump-normalized`, create overrides for the minisheets you actually care about, and let real monsters tell us what the next general rule should be.
 

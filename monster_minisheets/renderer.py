@@ -26,13 +26,15 @@ class PreparedMinisheet:
     large: bool
     body_size: float
     column_split: int | None = None
+    full_page: bool = False
 
 
 class MinisheetRenderer:
-    """Render measured one-sided monster minisheets onto Letter pages.
+    """Render measured one-sided monster sheets onto Letter pages.
 
     Coordinates use ReportLab points with (0, 0) at the lower-left of the
-    logical portrait minisheet. Large sheets are rotated only during imposition.
+    logical portrait sheet. Large sheets are rotated only during imposition;
+    exceptionally dense full-page sheets remain portrait.
     """
 
     # These are intrinsic properties of the four vector shapes. Their configured
@@ -58,6 +60,8 @@ class MinisheetRenderer:
         self.NORMAL_H = self.sheet.minisheet_height
         self.LARGE_W = self.sheet.large_minisheet_width
         self.LARGE_H = self.sheet.large_minisheet_height
+        self.FULL_W = self.sheet.page_width
+        self.FULL_H = self.sheet.page_height
         self.M = self.sheet.artwork_inset
         self.layout = self.style["layout"]
         self.header = self.layout["header"]
@@ -147,6 +151,10 @@ class MinisheetRenderer:
         self.c = canvas.Canvas(str(output), pagesize=(self.PAGE_W, self.PAGE_H))
         self.c.setTitle("Monster Minisheets")
         for rows in pages:
+            if rows and rows[0] and rows[0][0].full_page:
+                self._draw_full_page(rows[0][0])
+                self.c.showPage()
+                continue
             for index, row in enumerate(rows):
                 self._draw_row(row, top=index == 0)
             top_is_normal = bool(rows and not rows[0][0].large)
@@ -164,12 +172,30 @@ class MinisheetRenderer:
     def _pack_pages(
         minisheets: list[PreparedMinisheet],
     ) -> list[list[list[PreparedMinisheet]]]:
-        """Fill normal rows with forward lookahead; large sheets own their rows.
+        """Pack half-page rows while full-page sheets remain standalone.
 
         Minisheets arrive alphabetized. If a large sheet interrupts two normal
         sheets, the later normal sheet is pulled forward to avoid wasting the
-        first normal row's second quadrant.
+        first normal row's second quadrant. A full-page sheet is a hard packing
+        boundary so other sheets never move across it.
         """
+        pages: list[list[list[PreparedMinisheet]]] = []
+        pending: list[PreparedMinisheet] = []
+        for minisheet in minisheets:
+            if not getattr(minisheet,"full_page",False):
+                pending.append(minisheet)
+                continue
+            pages.extend(MinisheetRenderer._pack_half_sheet_pages(pending))
+            pending = []
+            pages.append([[minisheet]])
+        pages.extend(MinisheetRenderer._pack_half_sheet_pages(pending))
+        return pages
+
+    @staticmethod
+    def _pack_half_sheet_pages(
+        minisheets: list[PreparedMinisheet],
+    ) -> list[list[list[PreparedMinisheet]]]:
+        """Fill ordinary two-row pages from normal and large sheets."""
         rows: list[list[PreparedMinisheet]] = []
         consumed: set[int] = set()
         for index,minisheet in enumerate(minisheets):
@@ -194,9 +220,23 @@ class MinisheetRenderer:
             rows.append(row)
         return [rows[index:index + 2] for index in range(0, len(rows), 2)]
 
-    def _use_size(self, *, large: bool) -> None:
-        self.W = self.LARGE_W if large else self.NORMAL_W
-        self.H = self.LARGE_H if large else self.NORMAL_H
+    def _use_size(self, *, large: bool = False, full_page: bool = False) -> None:
+        if large and full_page:
+            raise ValueError("A sheet cannot be both large and full-page")
+        if full_page:
+            self.W,self.H = self.FULL_W,self.FULL_H
+        elif large:
+            self.W,self.H = self.LARGE_W,self.LARGE_H
+        else:
+            self.W,self.H = self.NORMAL_W,self.NORMAL_H
+
+    def _draw_full_page(self, prepared: PreparedMinisheet) -> None:
+        """Draw one portrait Letter sheet with no cut guides or rotation."""
+        c = self.c; assert c
+        self._use_size(full_page=True)
+        c.saveState()
+        self._draw_minisheet(prepared)
+        c.restoreState()
 
     def _draw_row(self, row: list[PreparedMinisheet], top: bool) -> None:
         """Draw one full-width physical row with one large or up to two normals."""
@@ -583,6 +623,33 @@ class MinisheetRenderer:
             self._draw_ability(index,abbr,minisheet.abilities[abbr],ability_top)
         return ability_top-self.ability_band_height
 
+    def _measure_dashboard(self,minisheet: MonsterMinisheet) -> None:
+        """Validate every dashboard field during predictive layout."""
+        top = self._dashboard_top()
+        dashboard_inset = (self.W-2*self.M)*float(
+            self.primary_stats["horizontal_inset_width_percent"]
+        )/100
+        dashboard_span = self.W-2*self.M-2*dashboard_inset
+        xs = [self.M+dashboard_inset+i*dashboard_span/3 for i in range(4)]
+        values = (
+            ("ac","AC",minisheet.ac),
+            ("hp","HP",minisheet.hp),
+            ("speed","SPEED",minisheet.speed),
+            ("pp","PP",minisheet.passive_perception),
+        )
+        widths = [self._primary_stat_width(kind) for kind,_,_ in values]
+        bounds = [(x-width/2,x+width/2) for x,width in zip(xs,widths)]
+        if bounds[0][0] < self.M or bounds[-1][1] > self.W-self.M or any(
+            right > next_left for (_,right),(next_left,_) in zip(bounds,bounds[1:])
+        ):
+            raise RuntimeError("Primary-stat icons do not fit across the printable minisheet width")
+        for x,(kind,label,value) in zip(xs,values):
+            self._primary_stat_text_layout(kind,label,str(value),x,top)
+
+        ability_top = top-self.primary_stat_height
+        for index,abbr in enumerate(ABILITIES):
+            self._ability_layout(index,abbr,minisheet.abilities[abbr],ability_top)
+
     def _ability_usable_height(self) -> float:
         padding = self.ability_band_height*float(
             self.abilities["vertical_padding_height_percent"]
@@ -890,6 +957,7 @@ class MinisheetRenderer:
         minisheet.overflow = []
         self._prepare_fact_flow(minisheet)
         self._header_layout(minisheet)
+        self._measure_dashboard(minisheet)
         y = self._rule_block_top(minisheet)
         floor = self._content_floor(minisheet)
         if columns == 1 or len(minisheet.blocks) < 2:
@@ -913,17 +981,21 @@ class MinisheetRenderer:
         return used <= available,max(0.0,used-available),split
 
     def _prepare_minisheet(self, source: MonsterMinisheet) -> PreparedMinisheet:
-        """Choose normal unless complete measured content requires large."""
+        """Promote measured content from normal to large to full Letter."""
         errors: list[str] = []
         preferred = float(self.sizes["body"])
         minimum = float(self.large_columns["body_min_size_pt"])
-        attempts = [(False,preferred,1)]
+        attempts = [(False,False,preferred,1)]
         size = preferred
         while size >= minimum:
-            attempts.extend(((True,size,1),(True,size,2)))
+            attempts.extend(((True,False,size,1),(True,False,size,2)))
             size -= 1
-        for large,body_size,columns in attempts:
-            self._use_size(large=large)
+        size = preferred
+        while size >= minimum:
+            attempts.extend(((False,True,size,1),(False,True,size,2)))
+            size -= 1
+        for large,full_page,body_size,columns in attempts:
+            self._use_size(large=large,full_page=full_page)
             self.body_size = body_size
             minisheet = deepcopy(source)
             try:
@@ -935,11 +1007,12 @@ class MinisheetRenderer:
                 return PreparedMinisheet(
                     minisheet=minisheet,large=large,body_size=body_size,
                     column_split=split if columns == 2 else None,
+                    full_page=full_page,
                 )
             errors.append(f"content is {excess:.1f} pt too tall")
         detail = errors[-1] if errors else "content does not fit"
         raise RuntimeError(
-            f"Text overflow for {source.name!r}: {detail} on a 5.5 x 8.5 inch minisheet"
+            f"Text overflow for {source.name!r}: {detail} on an 8.5 x 11 inch full-page sheet"
         )
 
     def _draw_source_note(self, minisheet: MonsterMinisheet) -> None:

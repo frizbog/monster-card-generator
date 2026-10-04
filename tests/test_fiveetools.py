@@ -159,6 +159,15 @@ class FiveEToolsTests(unittest.TestCase):
             minisheet.quick_facts,
         )
 
+    def test_fly_only_hover_speed_keeps_the_icon_compact(self):
+        raw = creature("Hovering Spirit")
+        raw["speed"] = {"fly": {"number": 50,"condition": "(hover)"}}
+
+        minisheet = monster_to_minisheet(adapt_5etools_monster(raw))
+
+        self.assertEqual(minisheet.speed,"50'")
+        self.assertIn("Fly (hover)",minisheet.quick_facts)
+
 
 if __name__ == "__main__":
     unittest.main()

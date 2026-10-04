@@ -25,7 +25,8 @@ drawing text that cannot fit at that size.
 ### `page_width_in` and `page_height_in`
 
 The physical PDF page dimensions. The defaults produce portrait US Letter
-pages measuring 8.5 by 11 inches.
+pages measuring 8.5 by 11 inches. These same dimensions become the logical
+sheet size when content is promoted to the full-page fallback.
 
 ### `minisheet_width_in` and `minisheet_height_in`
 
@@ -141,16 +142,17 @@ before traits and actions. Text is never silently discarded.
 ### `layout.large_columns`
 
 - `gutter_in`: space between the two rule-text columns used when a large
-  minisheet still does not fit as one column.
+  minisheet or full-page sheet does not fit as one column.
 - `body_min_size_pt`: smallest permitted body size for that measured large-sheet
-  fallback. The renderer tries whole one-point decrements.
+  or full-page fallback. The renderer tries whole one-point decrements.
 
 ### Sheet cut field
 
 - `trim_guide_width_pt`: stroke width of the solid cut guides.
 
-The horizontal center guide is always drawn. Vertical center guides are drawn
-only through rows containing normal minisheets.
+On pages containing normal or large minisheets, the horizontal center guide is
+always drawn. Vertical center guides are drawn only through rows containing
+normal minisheets. A full-page sheet has no cut guides.
 
 ## `colors`
 
@@ -191,7 +193,7 @@ contract: Black for names, Bold for labels, and Regular for prose.
 These remaining values are typographic point sizes.
 
 - `body`: preferred rule prose size. Normal minisheets always use this size;
-  large sheets may reduce it according to `layout.large_columns`.
+  large and full-page sheets may reduce it according to `layout.large_columns`.
 - `source_note`: source-note font size at the bottom of the minisheet.
 
 ## Editing guidance
