@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from monster_minisheets.io import load_manual_minisheets
+from monster_minisheets.fiveetools import DEFAULT_BASE_URL, FiveEToolsBestiary
 from monster_minisheets.normalize import monster_to_minisheet
 from monster_minisheets.overrides import apply_override, load_override
 from monster_minisheets.renderer import MinisheetRenderer
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_STYLE = ROOT / "config" / "minisheet_style.json"
 DEFAULT_SRD = "../dnd-srd-json"
 DEFAULT_CUSTOM_MONSTERS = ROOT / "custom"
+DEFAULT_5ETOOLS_CACHE = ROOT / ".cache" / "5etools"
 
 SOURCE_OPTIONS_HELP = (
     "Custom monster JSON file or directory (default: project's custom/ directory; "
@@ -33,11 +35,37 @@ def add_source_options(command: argparse.ArgumentParser) -> None:
         "--custom-monsters", default=str(DEFAULT_CUSTOM_MONSTERS), metavar="CUSTOM_PATH",
         help=SOURCE_OPTIONS_HELP,
     )
+    command.add_argument(
+        "--5etools", dest="fiveetools", action="store_true",
+        help="Use the public 5etools bestiary as a fallback for names missing locally.",
+    )
+    command.add_argument(
+        "--5etools-source", dest="fiveetools_source", action="append", default=[], metavar="SOURCE",
+        help="Limit 5etools lookup to a source code such as CoS or MM (repeatable).",
+    )
+    command.add_argument(
+        "--5etools-base-url", dest="fiveetools_base_url", default=DEFAULT_BASE_URL, metavar="URL",
+        help="5etools bestiary data root (default: %(default)s).",
+    )
+    command.add_argument(
+        "--5etools-cache", dest="fiveetools_cache", default=str(DEFAULT_5ETOOLS_CACHE), metavar="PATH",
+        help="Directory for downloaded 5etools JSON files (default: %(default)s).",
+    )
 
 
-def repository_from_args(args: argparse.Namespace) -> SRDRepository:
+def repository_from_args(
+    args: argparse.Namespace, roster_sources: list[str] | None = None,
+) -> SRDRepository:
     """Build the shared data source used by the inspect, monster, and roster commands."""
-    return SRDRepository(args.srd, args.custom_monsters)
+    sources = args.fiveetools_source or roster_sources
+    fiveetools = None
+    if args.fiveetools or sources:
+        fiveetools = FiveEToolsBestiary(
+            sources=sources or None,
+            base_url=args.fiveetools_base_url,
+            cache_dir=args.fiveetools_cache,
+        )
+    return SRDRepository(args.srd, args.custom_monsters, fiveetools=fiveetools)
 
 
 def normalized_minisheets(repo: SRDRepository, names: list[str], override: str | None = None):
@@ -58,7 +86,8 @@ def main() -> int:
 The SRD repository defaults to ../dnd-srd-json. Use --srd to select a different
 repository directory. By default, every .json file under this project's custom/
 directory is loaded alongside the SRD. Use --custom-monsters to select a
-different JSON file or directory.
+different JSON file or directory. Use --5etools to enable remote fallback;
+repeat --5etools-source to restrict downloads to known source books.
 """
     parser = argparse.ArgumentParser(
         description="Generate fast-play D&D monster minisheets as PDFs.",
@@ -139,9 +168,12 @@ different JSON file or directory.
             return 0
 
         if args.command == "roster":
-            repo = repository_from_args(args)
             roster_path = Path(args.roster_file)
             data = json.loads(roster_path.read_text(encoding="utf-8"))
+            roster_sources = data.get("5etools_sources")
+            if roster_sources is not None and not isinstance(roster_sources, list):
+                raise RuntimeError("Roster 5etools_sources must be a list of source codes")
+            repo = repository_from_args(args, roster_sources)
             minisheets = []
             for entry in data["monsters"]:
                 if isinstance(entry, str):

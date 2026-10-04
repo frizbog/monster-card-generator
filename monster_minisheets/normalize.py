@@ -297,9 +297,13 @@ def monster_to_minisheet(monster: dict[str, Any]) -> MonsterMinisheet:
         quick_facts=choose_quick_facts(monster),
         blocks=_blocks(monster),
         source_note=(
-            "Generated from custom monster JSON."
-            if monster.get("_custom_monster")
-            else "Generated from local D&D SRD JSON. SRD 5.2.1 content is CC BY 4.0, Wizards of the Coast LLC."
+            str(monster["_source_note"])
+            if monster.get("_source_note")
+            else (
+                "Generated from custom monster JSON."
+                if monster.get("_custom_monster")
+                else "Generated from local D&D SRD JSON. SRD 5.2.1 content is CC BY 4.0, Wizards of the Coast LLC."
+            )
         ),
     )
     missing = [
@@ -309,13 +313,14 @@ def monster_to_minisheet(monster: dict[str, Any]) -> MonsterMinisheet:
         ) if not value or value == "?"
     ]
     missing_abilities = [abbr for abbr in ABILITIES if not any(key in monster for key in ABILITY_KEYS[abbr])]
-    if missing or missing_abilities or not minisheet.blocks:
+    missing_blocks = not minisheet.blocks and not monster.get("_allow_no_blocks")
+    if missing or missing_abilities or missing_blocks:
         details = []
         if missing:
             details.append("missing " + ", ".join(missing))
         if missing_abilities:
             details.append("missing ability scores: " + ", ".join(missing_abilities))
-        if not minisheet.blocks:
+        if missing_blocks:
             details.append("no traits or actions found")
         raise NormalizationError(
             f"SRD data for {minisheet.name!r} is incomplete ({'; '.join(details)}). "

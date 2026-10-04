@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 from typing import Any
 
+from .fiveetools import FiveEToolsBestiary, FiveEToolsError
 from .util import slugify, walk_json_files
 
 
@@ -99,7 +100,12 @@ class SRDRepository:
     repository's exact schema.
     """
 
-    def __init__(self, root: str | Path, custom_monsters: str | Path | None = None):
+    def __init__(
+        self,
+        root: str | Path,
+        custom_monsters: str | Path | None = None,
+        fiveetools: FiveEToolsBestiary | None = None,
+    ):
         self.root = Path(root).expanduser().resolve()
         if not self.root.is_dir():
             raise SRDError(
@@ -108,6 +114,7 @@ class SRDRepository:
                 "--srd PATH (for example: --srd ../dnd-srd-json)."
             )
         self.custom_documents = CustomMonsterDocuments(custom_monsters)
+        self.fiveetools = fiveetools
         self._monster_index: dict[str, dict[str, Any]] | None = None
         self._spell_index: dict[str, dict[str, Any]] | None = None
 
@@ -127,6 +134,8 @@ class SRDRepository:
         if self.custom_documents.files:
             description["custom_monster_files"] = [str(path) for path in self.custom_monster_files]
             description["custom_monsters"] = len(self._custom_monsters())
+        if self.fiveetools:
+            description["5etools"] = self.fiveetools.describe()
         return description
 
     def monster(self, name: str) -> dict[str, Any]:
@@ -138,10 +147,18 @@ class SRDRepository:
         for obj in monster_index.values():
             if str(obj.get("name", "")).casefold() == name.casefold():
                 return obj
+        if self.fiveetools:
+            try:
+                return self.fiveetools.monster(name)
+            except FiveEToolsError as exc:
+                fiveetools_error = str(exc)
+        else:
+            fiveetools_error = ""
         available = sorted(str(x.get("name")) for x in monster_index.values() if x.get("name"))
         near = [x for x in available if name.casefold() in x.casefold() or x.casefold() in name.casefold()][:10]
         hint = f" Near matches: {', '.join(near)}" if near else ""
-        raise SRDError(f"Monster not found: {name}.{hint}")
+        remote_hint = f" 5etools: {fiveetools_error}" if fiveetools_error else ""
+        raise SRDError(f"Monster not found: {name}.{hint}{remote_hint}")
 
     def _monsters(self) -> dict[str, dict[str, Any]]:
         """Build the combined index; custom records deliberately override SRD records."""

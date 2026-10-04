@@ -174,6 +174,40 @@ documents are additive: ordinary names still resolve from `--srd`.
 If a custom monster has the same name as an SRD monster, the custom definition
 takes precedence. The option also works with `roster` and `inspect-srd`.
 
+### 5etools bestiary fallback
+
+The generator can consult the public 5etools bestiary for a monster that is not
+present in the local SRD or custom documents. The fallback is opt-in for direct
+monster commands:
+
+```bash
+python minisheets.py monster "Baba Lysaga" \
+  --5etools-source CoS \
+  --5etools-source MM \
+  --5etools-source VRGR
+```
+
+`--5etools-source` both enables the fallback and limits downloads to the named
+source books. Use `--5etools` without source options to search every bestiary
+source lazily, though that can require substantially more downloads. Downloaded
+JSON is cached under `.cache/5etools/`; change that location with
+`--5etools-cache PATH`.
+
+Roster files can enable the same fallback without extra command-line options:
+
+```json
+{
+  "name": "Curse of Strahd",
+  "5etools_sources": ["CoS", "MM", "VRGR"],
+  "monsters": ["Baba Lysaga", "Barovian Scout"]
+}
+```
+
+Lookup precedence remains deterministic: custom definitions override the local
+SRD, and 5etools is consulted only when neither local source contains the name.
+The adapter resolves 5etools `_copy` inheritance before normalization and
+reports unsupported copy operations rather than silently dropping mechanics.
+
 ## 7. Editorial overrides
 
 Automatic normalization is intentionally not the final word. Dense monsters, casters, or creatures with awkward source text should get small override files.
