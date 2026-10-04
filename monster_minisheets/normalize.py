@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .model import ABILITIES, Ability, MonsterCard, RuleBlock
+from .model import ABILITIES, Ability, MonsterMinisheet, RuleBlock
 from .quickfacts import choose_quick_facts
 from .util import ability_mod, first, signed, strip_markup
 
@@ -277,7 +277,7 @@ def _blocks(monster: dict[str, Any]) -> list[RuleBlock]:
     return result
 
 
-def monster_to_card(monster: dict[str, Any]) -> MonsterCard:
+def monster_to_minisheet(monster: dict[str, Any]) -> MonsterMinisheet:
     monster = _adapt_extracted_srd(monster)
     speed, additional_speeds = _speeds(monster)
     if additional_speeds:
@@ -285,7 +285,7 @@ def monster_to_card(monster: dict[str, Any]) -> MonsterCard:
     abilities = {abbr: _ability(monster, abbr) for abbr in ABILITIES}
     hp = first(monster, "hit_points", "hp", default="?")
     cr = first(monster, "challenge_rating", "cr", default="?")
-    card = MonsterCard(
+    minisheet = MonsterMinisheet(
         name=strip_markup(first(monster, "name", default="Unnamed Monster")),
         subtitle=_subtitle(monster),
         cr=str(cr),
@@ -304,21 +304,21 @@ def monster_to_card(monster: dict[str, Any]) -> MonsterCard:
     )
     missing = [
         label for label, value in (
-            ("subtitle", card.subtitle), ("CR", card.cr), ("AC", card.ac),
-            ("HP", card.hp), ("speed", card.speed),
+            ("subtitle", minisheet.subtitle), ("CR", minisheet.cr), ("AC", minisheet.ac),
+            ("HP", minisheet.hp), ("speed", minisheet.speed),
         ) if not value or value == "?"
     ]
     missing_abilities = [abbr for abbr in ABILITIES if not any(key in monster for key in ABILITY_KEYS[abbr])]
-    if missing or missing_abilities or not card.blocks:
+    if missing or missing_abilities or not minisheet.blocks:
         details = []
         if missing:
             details.append("missing " + ", ".join(missing))
         if missing_abilities:
             details.append("missing ability scores: " + ", ".join(missing_abilities))
-        if not card.blocks:
+        if not minisheet.blocks:
             details.append("no traits or actions found")
         raise NormalizationError(
-            f"SRD data for {card.name!r} is incomplete ({'; '.join(details)}). "
+            f"SRD data for {minisheet.name!r} is incomplete ({'; '.join(details)}). "
             "The SRD JSON schema may not be supported."
         )
-    return card
+    return minisheet

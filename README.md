@@ -1,9 +1,9 @@
-# Monster Card Generator
+# Monster Minisheet Generator
 
 A small, local Python tool that turns D&D SRD monster JSON into one-sided,
 fast-play monster minisheets.
 
-The project deliberately keeps the **SRD data repository separate** from the **card generator**. The SRD clone is an upstream dependency; this repository contains only layout, normalization, heuristics, and your editorial overrides.
+The project deliberately keeps the **SRD data repository separate** from the **minisheet generator**. The SRD clone is an upstream dependency; this repository contains only layout, normalization, heuristics, and your editorial overrides.
 
 ## What this version does
 
@@ -17,14 +17,14 @@ The project deliberately keeps the **SRD data repository separate** from the **c
 - Uses **Noto Sans**. Ability modifiers are deliberately large; the old `MODIFIERS` and `Raw Scores` labels are gone.
 - Reads several common SRD-as-JSON layouts rather than hard-coding one repository schema.
 - Automatically proposes a compact `quick_facts` strip from initiative, useful skills/saves, senses, resistances/immunities, etc.
-- Supports editorial JSON overrides so a hand-tuned card stays hand-tuned.
-- Supports simple kit files that generate several cards together.
+- Supports editorial JSON overrides so a hand-tuned minisheet stays hand-tuned.
+- Supports simple roster files that generate several minisheets together.
 
 ## Philosophy
 
-The source SRD is **facts**. The card generator is **presentation and editorial judgment**.
+The source SRD is **facts**. The minisheet generator is **presentation and editorial judgment**.
 
-Do not try to reproduce the Monster Manual. Optimize for seconds-to-understand at the table. A rare lookup can still go to the book. The cards are for eliminating repetitive lookup.
+Do not try to reproduce the Monster Manual. Optimize for seconds-to-understand at the table. A rare lookup can still go to the book. The minisheets are for eliminating repetitive lookup.
 
 ## 1. Install Python
 
@@ -65,20 +65,20 @@ The code searches common macOS, Linux, and Windows font directories. If needed, 
 export NOTO_SANS_DIR="$HOME/Library/Fonts"
 ```
 
-Variable-font instances are cached under `~/Library/Caches/monster-card-generator/fonts` on macOS. They use the distinct internal family name **Monster Card Noto Sans**, so installing one in Font Book will not replace the original Google Noto Sans family. Installing the cache files is not required for PDF generation.
+Variable-font instances are cached under `~/Library/Caches/monster-minisheet-generator/fonts` on macOS. They use the distinct internal family name **Monster Minisheet Noto Sans**, so installing one in Font Book will not replace the original Google Noto Sans family. Installing the cache files is not required for PDF generation.
 
 ## 4. Smoke test without an SRD clone
 
 The package includes two tiny manual examples solely to prove the renderer works:
 
 ```bash
-python cards.py sample
+python minisheets.py sample
 ```
 
 Output:
 
 ```text
-output/sample-cards.pdf
+output/sample-minisheets.pdf
 ```
 
 This is the quickest way to verify ReportLab + Noto Sans + PDF rendering on your machine.
@@ -92,8 +92,8 @@ Recommended directory shape:
 
 ```text
 dnd/
-├── dnd-srd-json/             # upstream clone; never edit for card work
-└── monster-card-generator/   # this project
+├── dnd-srd-json/             # upstream clone; never edit for minisheet work
+└── monster-minisheet-generator/   # this project
 ```
 
 The adapter supports, among other layouts:
@@ -115,7 +115,7 @@ A current SRD 5.2.1 JSON repository is preferable. Keep its license/attribution 
 First verify that the adapter can see it:
 
 ```bash
-python cards.py inspect-srd
+python minisheets.py inspect-srd
 ```
 
 You should see counts for monsters and spells.
@@ -126,21 +126,21 @@ The default SRD location is `../dnd-srd-json`. If your clone is elsewhere, add
 ## 6. Generate one monster
 
 ```bash
-python cards.py monster "Goblin Warrior"
+python minisheets.py monster "Goblin Warrior"
 ```
 
 Or specify the output path:
 
 ```bash
-python cards.py monster "Goblin Warrior" \
+python minisheets.py monster "Goblin Warrior" \
   --srd ../dnd-srd-json \
   --out output/goblin-warrior.pdf
 ```
 
-To see the normalized card data without making a PDF:
+To see the normalized minisheet data without making a PDF:
 
 ```bash
-python cards.py monster "Goblin Warrior" \
+python minisheets.py monster "Goblin Warrior" \
   --srd ../dnd-srd-json \
   --dump-normalized
 ```
@@ -150,13 +150,13 @@ That command is very useful while adapting to a particular upstream JSON schema.
 You can also generate several monsters into one PDF directly from the command line:
 
 ```bash
-python cards.py monster "Goblin Warrior" "Goblin Boss" "Worg" \
+python minisheets.py monster "Goblin Warrior" "Goblin Boss" "Worg" \
   --srd ../dnd-srd-json \
   --out output/goblins.pdf
 ```
 
-Without `--out`, a multi-monster command writes to `output/monster-cards.pdf`.
-Use a kit file instead when individual monsters need different override files.
+Without `--out`, a multi-monster command writes to `output/monster-minisheets.pdf`.
+Use a roster file instead when individual monsters need different override files.
 
 ### Custom monsters alongside the SRD
 
@@ -166,13 +166,13 @@ repository's `data/documents/monsters-a-z.json` file. See
 [`custom/README.md`](custom/README.md) for authoring instructions.
 
 ```bash
-python cards.py monster "Clockwork Goblin" --out output/clockwork-goblin.pdf
+python minisheets.py monster "Clockwork Goblin" --out output/clockwork-goblin.pdf
 ```
 
 To use a different file or directory, pass `--custom-monsters PATH`. The custom
 documents are additive: ordinary names still resolve from `--srd`.
 If a custom monster has the same name as an SRD monster, the custom definition
-takes precedence. The option also works with `kit` and `inspect-srd`.
+takes precedence. The option also works with `roster` and `inspect-srd`.
 
 ## 7. Editorial overrides
 
@@ -181,7 +181,7 @@ Automatic normalization is intentionally not the final word. Dense monsters, cas
 Example:
 
 ```bash
-python cards.py monster "Cultist Fanatic" \
+python minisheets.py monster "Cultist Fanatic" \
   --srd ../dnd-srd-json \
   --override overrides/human-cultist-caster.example.json \
   --out output/human-cultist-caster.pdf
@@ -210,7 +210,7 @@ The important design rule is: **if an operational spell summary is good, save it
 
 ## 8. Quick-facts selection
 
-`monster_cards/quickfacts.py` proposes facts using a simple priority heuristic:
+`monster_minisheets/quickfacts.py` proposes facts using a simple priority heuristic:
 
 1. Initiative.
 2. High-value encounter skills such as Stealth and Perception.
@@ -221,9 +221,9 @@ The important design rule is: **if an operational spell summary is good, save it
 
 It also limits the strip length. This is a **proposal**, not sacred truth. Put `quick_facts` in an override whenever your DM judgment is better.
 
-## 9. Generate a kit
+## 9. Generate a roster
 
-A kit file is collection management, not monster data:
+A roster file is collection management, not monster data:
 
 ```json
 {
@@ -237,10 +237,10 @@ A kit file is collection management, not monster data:
 Run:
 
 ```bash
-python cards.py kit kits/example-goblins.json
+python minisheets.py roster rosters/example-goblins.json
 ```
 
-If a kit names a monster that is not present in the SRD, the command prints a
+If a roster names a monster that is not present in the SRD, the command prints a
 warning, skips that entry, and continues rendering the remaining monsters.
 
 Entries can also name an override:
@@ -264,10 +264,10 @@ Entries can also name an override:
 Edit:
 
 ```text
-config/card_style.json
+config/minisheet_style.json
 ```
 
-That contains card dimensions, colors, and most font sizes. For example:
+That contains minisheet dimensions, colors, and most font sizes. For example:
 
 ```json
 "ability_modifier": 16
@@ -275,8 +275,8 @@ That contains card dimensions, colors, and most font sizes. For example:
 
 is the new large ability-modifier size.
 
-The front header is sized from visible proportions rather than independent
-coordinates. `layout.front_header.height_in` controls the header band's physical
+The minisheet header is sized from visible proportions rather than independent
+coordinates. `layout.header.height_in` controls the header band's physical
 height. `name_height_percent` and `challenge_rating_height_percent` derive those
 font sizes from the padded band height; the subtitle uses the portion of the
 two-row stack not assigned to the name. Text is measured and reduced further
@@ -319,7 +319,7 @@ been useful; this is a design direction rather than a format-wide restriction.
 Edit:
 
 ```text
-monster_cards/renderer.py
+monster_minisheets/renderer.py
 ```
 
 This contains the coordinates and shapes for the header, dashboard, ability
@@ -330,18 +330,18 @@ row, quick-facts strip, flowing rules, measured promotion, and page imposition.
 Edit:
 
 ```text
-monster_cards/srd.py
-monster_cards/normalize.py
+monster_minisheets/srd.py
+monster_minisheets/normalize.py
 ```
 
-`srd.py` is responsible for finding resources in an upstream repository. `normalize.py` translates arbitrary-ish SRD JSON field names into our stable `MonsterCard` model.
+`srd.py` is responsible for finding resources in an upstream repository. `normalize.py` translates arbitrary-ish SRD JSON field names into our stable `MonsterMinisheet` model.
 
 ### Quick-facts logic
 
 Edit:
 
 ```text
-monster_cards/quickfacts.py
+monster_minisheets/quickfacts.py
 ```
 
 ### Creature-specific editorial decisions
@@ -368,12 +368,12 @@ normalizer (normalize.py)
       +----> quick-facts heuristic
       |
       v
-MonsterCard model
+MonsterMinisheet model
       |
       +----> editorial override JSON
       |
       v
-CardRenderer (renderer.py)
+MinisheetRenderer (renderer.py)
       |
       v
 PDF
@@ -389,14 +389,14 @@ a large minisheet, then may use two columns and one-point body-text reductions
 down to the configured minimum. If the complete content still cannot fit, it
 reports an explicit overflow error.
 
-That is intentional at this stage: use `--dump-normalized`, create overrides for the cards you actually care about, and let real monsters tell us what the next general rule should be.
+That is intentional at this stage: use `--dump-normalized`, create overrides for the minisheets you actually care about, and let real monsters tell us what the next general rule should be.
 
 The next valuable improvements are likely:
 
 - a reusable spell-summary library;
 - smarter recognition of attack syntax from SRD action prose;
 - additional printer calibration guidance for the Letter minisheet workflow;
-- card/kit batch manifests and validation.
+- minisheet/roster batch manifests and validation.
 
 ## Printing and cutting
 

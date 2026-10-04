@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .model import Ability, MonsterCard, RuleBlock
+from .model import Ability, MonsterMinisheet, RuleBlock
 
 
 def load_override(path: str | Path | None) -> dict[str, Any]:
@@ -13,24 +13,24 @@ def load_override(path: str | Path | None) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def apply_override(card: MonsterCard, data: dict[str, Any]) -> MonsterCard:
+def apply_override(minisheet: MonsterMinisheet, data: dict[str, Any]) -> MonsterMinisheet:
     if not data:
-        return card
+        return minisheet
     for field in ("name", "subtitle", "cr", "ac", "hp", "speed", "passive_perception", "source_note"):
         if field in data:
-            setattr(card, field, str(data[field]) if data[field] is not None else None)
+            setattr(minisheet, field, str(data[field]) if data[field] is not None else None)
     if "quick_facts" in data:
-        card.quick_facts = [str(x) for x in data["quick_facts"]]
+        minisheet.quick_facts = [str(x) for x in data["quick_facts"]]
     if "abilities" in data:
         for abbr, payload in data["abilities"].items():
-            card.abilities[abbr.upper()] = Ability(int(payload["score"]), int(payload["modifier"]))
+            minisheet.abilities[abbr.upper()] = Ability(int(payload["score"]), int(payload["modifier"]))
     if "blocks" in data:
-        card.blocks = [_rule_block(x) for x in data["blocks"]]
+        minisheet.blocks = [_rule_block(x) for x in data["blocks"]]
     if "append_blocks" in data:
-        card.blocks.extend(_rule_block(x) for x in data["append_blocks"])
+        minisheet.blocks.extend(_rule_block(x) for x in data["append_blocks"])
     if "overflow" in data:
-        card.overflow = [_rule_block(x) for x in data["overflow"]]
-    return card
+        minisheet.overflow = [_rule_block(x) for x in data["overflow"]]
+    return minisheet
 
 
 def _rule_block(x: dict[str, Any]) -> RuleBlock:

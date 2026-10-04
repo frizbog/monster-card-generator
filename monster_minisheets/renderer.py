@@ -14,7 +14,7 @@ from reportlab.pdfgen import canvas
 
 from .fonts import register_noto
 from .layout import PT_PER_IN, SheetLayout
-from .model import ABILITIES, MonsterCard, RuleBlock
+from .model import ABILITIES, MonsterMinisheet, RuleBlock
 from .util import signed
 
 
@@ -22,13 +22,13 @@ from .util import signed
 class PreparedMinisheet:
     """A measured one-sided monster sheet and its selected physical size."""
 
-    card: MonsterCard
+    minisheet: MonsterMinisheet
     large: bool
     body_size: float
     column_split: int | None = None
 
 
-class CardRenderer:
+class MinisheetRenderer:
     """Render measured one-sided monster minisheets onto Letter pages.
 
     Coordinates use ReportLab points with (0, 0) at the lower-left of the
@@ -52,26 +52,26 @@ class CardRenderer:
         self.sheet = SheetLayout.from_style(self.style)
         self.PAGE_W = self.sheet.page_width
         self.PAGE_H = self.sheet.page_height
-        self.W = self.sheet.card_width
-        self.H = self.sheet.card_height
-        self.NORMAL_W = self.sheet.card_width
-        self.NORMAL_H = self.sheet.card_height
-        self.LARGE_W = self.sheet.large_card_width
-        self.LARGE_H = self.sheet.large_card_height
+        self.W = self.sheet.minisheet_width
+        self.H = self.sheet.minisheet_height
+        self.NORMAL_W = self.sheet.minisheet_width
+        self.NORMAL_H = self.sheet.minisheet_height
+        self.LARGE_W = self.sheet.large_minisheet_width
+        self.LARGE_H = self.sheet.large_minisheet_height
         self.M = self.sheet.artwork_inset
         self.layout = self.style["layout"]
-        self.front_header = self.layout["front_header"]
-        self.front_header_height = float(self.front_header["height_in"]) * PT_PER_IN
-        name_percent = float(self.front_header["name_height_percent"])
-        cr_percent = float(self.front_header["challenge_rating_height_percent"])
+        self.header = self.layout["header"]
+        self.header_height = float(self.header["height_in"]) * PT_PER_IN
+        name_percent = float(self.header["name_height_percent"])
+        cr_percent = float(self.header["challenge_rating_height_percent"])
         if not 0 < name_percent < 100:
-            raise ValueError("layout.front_header.name_height_percent must be between 0 and 100")
+            raise ValueError("layout.header.name_height_percent must be between 0 and 100")
         if not 0 < cr_percent <= 100:
             raise ValueError(
-                "layout.front_header.challenge_rating_height_percent must be between 0 and 100"
+                "layout.header.challenge_rating_height_percent must be between 0 and 100"
             )
-        if self._front_header_usable_height() <= 0:
-            raise ValueError("layout.front_header padding and gap must leave usable height")
+        if self._header_usable_height() <= 0:
+            raise ValueError("layout.header padding and gap must leave usable height")
         self.primary_stats = self.layout["primary_stats"]
         self.primary_stat_height = float(self.primary_stats["icon_height_in"]) * PT_PER_IN
         if self.primary_stat_height <= 0:
@@ -134,13 +134,13 @@ class CardRenderer:
         return HexColor(value)
 
     @staticmethod
-    def _ordered_cards(cards: Iterable[MonsterCard]) -> list[MonsterCard]:
-        """Return cards in stable, case-insensitive name order for PDF output."""
-        return sorted(cards,key=lambda card: (card.name.casefold(),card.name))
+    def _ordered_minisheets(minisheets: Iterable[MonsterMinisheet]) -> list[MonsterMinisheet]:
+        """Return minisheets in stable, case-insensitive name order for PDF output."""
+        return sorted(minisheets,key=lambda minisheet: (minisheet.name.casefold(),minisheet.name))
 
-    def render(self, cards: Iterable[MonsterCard], output: str | Path) -> Path:
+    def render(self, minisheets: Iterable[MonsterMinisheet], output: str | Path) -> Path:
         """Measure, size, pack, and render one-sided minisheets."""
-        prepared = [self._prepare_minisheet(card) for card in self._ordered_cards(cards)]
+        prepared = [self._prepare_minisheet(minisheet) for minisheet in self._ordered_minisheets(minisheets)]
         pages = self._pack_pages(prepared)
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -166,7 +166,7 @@ class CardRenderer:
     ) -> list[list[list[PreparedMinisheet]]]:
         """Fill normal rows with forward lookahead; large sheets own their rows.
 
-        Cards arrive alphabetized. If a large sheet interrupts two normal
+        Minisheets arrive alphabetized. If a large sheet interrupts two normal
         sheets, the later normal sheet is pulled forward to avoid wasting the
         first normal row's second quadrant.
         """
@@ -272,20 +272,20 @@ class CardRenderer:
 
     def _outer(self):
         c = self.c; assert c
-        color = self.colors["front_border"]
+        color = self.colors["minisheet_border"]
         if color is None:
             return
         c.setStrokeColor(color); c.setLineWidth(1); c.rect(self.M, self.M, self.W - 2*self.M, self.H - 2*self.M, stroke=1, fill=0)
 
-    def _front_header_usable_height(self) -> float:
+    def _header_usable_height(self) -> float:
         """Return header height available to the name and subtitle rows."""
-        padding = self.front_header_height*float(
-            self.front_header["vertical_padding_height_percent"]
+        padding = self.header_height*float(
+            self.header["vertical_padding_height_percent"]
         )/100
-        gap = self.front_header_height*float(
-            self.front_header["line_gap_height_percent"]
+        gap = self.header_height*float(
+            self.header["line_gap_height_percent"]
         )/100
-        return self.front_header_height-2*padding-gap
+        return self.header_height-2*padding-gap
 
     @staticmethod
     def _font_size_for_height(font: str, height: float) -> float:
@@ -349,24 +349,24 @@ class CardRenderer:
             )
         return size
 
-    def _front_header_layout(self, card: MonsterCard) -> dict[str, float | str]:
+    def _header_layout(self, minisheet: MonsterMinisheet) -> dict[str, float | str]:
         """Measure the two-row header from its visible height and text percentages."""
         header_top = self.H-self.M
         header_width = self.W-2*self.M
         padding_x = header_width*float(
-            self.front_header["horizontal_padding_width_percent"]
+            self.header["horizontal_padding_width_percent"]
         )/100
-        padding_y = self.front_header_height*float(
-            self.front_header["vertical_padding_height_percent"]
+        padding_y = self.header_height*float(
+            self.header["vertical_padding_height_percent"]
         )/100
-        line_gap = self.front_header_height*float(
-            self.front_header["line_gap_height_percent"]
+        line_gap = self.header_height*float(
+            self.header["line_gap_height_percent"]
         )/100
         column_gap = header_width*float(
-            self.front_header["column_gap_width_percent"]
+            self.header["column_gap_width_percent"]
         )/100
-        usable_height = self._front_header_usable_height()
-        name_row_height = usable_height*float(self.front_header["name_height_percent"])/100
+        usable_height = self._header_usable_height()
+        name_row_height = usable_height*float(self.header["name_height_percent"])/100
         subtitle_row_height = usable_height-name_row_height
         subtitle_top = header_top-padding_y-name_row_height-line_gap
         subtitle_bottom = subtitle_top-subtitle_row_height
@@ -374,25 +374,25 @@ class CardRenderer:
         name_top = header_top-padding_y
         left = self.M+padding_x
         right = self.W-self.M-padding_x
-        minimum = float(self.front_header["text_min_size_in"])*PT_PER_IN
+        minimum = float(self.header["text_min_size_in"])*PT_PER_IN
 
-        cr_text = f"CR {card.cr}"
+        cr_text = f"CR {minisheet.cr}"
         cr_height = usable_height*float(
-            self.front_header["challenge_rating_height_percent"]
+            self.header["challenge_rating_height_percent"]
         )/100
         cr_size = self._fit_text_to_height(
-            cr_text,"bold",cr_height,right-left,minimum,"front header"
+            cr_text,"bold",cr_height,right-left,minimum,"minisheet header"
         )
         cr_width = stringWidth(cr_text,self.fonts["bold"],cr_size)
         name_width = right-left-cr_width-column_gap
         if name_width <= 0:
             raise RuntimeError("Challenge rating leaves no room for the monster name")
         name_size = self._fit_text_to_height(
-            card.name,"black",name_row_height,name_width,
-            float(self.front_header["name_min_size_in"])*PT_PER_IN,"front header",
+            minisheet.name,"black",name_row_height,name_width,
+            float(self.header["name_min_size_in"])*PT_PER_IN,"minisheet header",
         )
         subtitle_size = self._fit_text_to_height(
-            card.subtitle,"bold",subtitle_row_height,right-left,minimum,"front header"
+            minisheet.subtitle,"bold",subtitle_row_height,right-left,minimum,"minisheet header"
         )
         return {
             "top": header_top,
@@ -413,12 +413,12 @@ class CardRenderer:
             ),
         }
 
-    def _header(self, card: MonsterCard):
+    def _header(self, minisheet: MonsterMinisheet):
         c = self.c; assert c
-        header = self._front_header_layout(card)
+        header = self._header_layout(minisheet)
         self._fill_rect(
-            self.M,self.H-self.M-self.front_header_height,
-            self.W-2*self.M,self.front_header_height,
+            self.M,self.H-self.M-self.header_height,
+            self.W-2*self.M,self.header_height,
             self.colors["header_band_background"],
         )
         text_color = self.colors["header_band_text"]
@@ -426,9 +426,9 @@ class CardRenderer:
             return
         c.setFillColor(text_color)
         c.setFont(self.fonts["black"],header["name_size"])
-        c.drawString(header["left"],header["name_baseline"],card.name)
+        c.drawString(header["left"],header["name_baseline"],minisheet.name)
         c.setFont(self.fonts["bold"],header["subtitle_size"])
-        c.drawString(header["left"],header["subtitle_baseline"],card.subtitle)
+        c.drawString(header["left"],header["subtitle_baseline"],minisheet.subtitle)
         c.setFont(self.fonts["bold"],header["cr_size"])
         c.drawRightString(header["right"],header["cr_baseline"],header["cr_text"])
 
@@ -549,9 +549,9 @@ class CardRenderer:
         )
         self._draw_primary_stat_text("pp","PP",value,cx,top)
 
-    def _dashboard(self, card: MonsterCard):
+    def _dashboard(self, minisheet: MonsterMinisheet):
         top = self._dashboard_top()
-        header_bottom = self.H-self.M-self.front_header_height
+        header_bottom = self.H-self.M-self.header_height
         ability_top = top-self.primary_stat_height
         self._fill_rect(
             self.M,ability_top,self.W-2*self.M,header_bottom-ability_top,
@@ -574,13 +574,13 @@ class CardRenderer:
         if bounds[0][0] < self.M or bounds[-1][1] > self.W-self.M or any(
             right > next_left for (_,right),(next_left,_) in zip(bounds,bounds[1:])
         ):
-            raise RuntimeError("Primary-stat icons do not fit across the printable card width")
-        self._shield_ac(xs[0],top,card.ac); self._box_hp(xs[1],top,card.hp); self._arrow_speed(xs[2],top,card.speed); self._circle_pp(xs[3],top,card.passive_perception)
+            raise RuntimeError("Primary-stat icons do not fit across the printable minisheet width")
+        self._shield_ac(xs[0],top,minisheet.ac); self._box_hp(xs[1],top,minisheet.hp); self._arrow_speed(xs[2],top,minisheet.speed); self._circle_pp(xs[3],top,minisheet.passive_perception)
 
         # Modifiers are deliberately large; raw scores are supporting information
         # beneath them. There are intentionally no "MODIFIERS" / "Raw Scores" labels.
         for index, abbr in enumerate(ABILITIES):
-            self._draw_ability(index,abbr,card.abilities[abbr],ability_top)
+            self._draw_ability(index,abbr,minisheet.abilities[abbr],ability_top)
         return ability_top-self.ability_band_height
 
     def _ability_usable_height(self) -> float:
@@ -593,7 +593,7 @@ class CardRenderer:
         return self.ability_band_height-2*padding-2*gap
 
     def _ability_column_bounds(self, index: int) -> tuple[float,float]:
-        """Return one of six equal columns across the printable card width."""
+        """Return one of six equal columns across the printable minisheet width."""
         column_width = (self.W-2*self.M)/len(ABILITIES)
         left = self.M+index*column_width
         return left,left+column_width
@@ -673,7 +673,7 @@ class CardRenderer:
 
     def _dashboard_top(self) -> float:
         return (
-            self.H-self.M-self.front_header_height
+            self.H-self.M-self.header_height
             -self.primary_stat_height
             *float(self.primary_stats["top_gap_height_percent"])/100
         )
@@ -712,7 +712,7 @@ class CardRenderer:
         return y-height
 
     def _block_layout(self, block: RuleBlock, width: float | None = None):
-        """Wrap a front rule block, reserving first-line space for its bold title."""
+        """Wrap a minisheet rule block, reserving first-line space for its bold title."""
         size = self.body_size
         if width is None:
             width = self.W-2*self.M-14
@@ -822,22 +822,22 @@ class CardRenderer:
                 yy-=size*1.34
         return yy-4
 
-    def _front_block_top(self, card: MonsterCard) -> float:
+    def _rule_block_top(self, minisheet: MonsterMinisheet) -> float:
         y = self._dashboard_bottom()
-        if card.quick_facts:
+        if minisheet.quick_facts:
             y -= self.quick_facts_band_height
         return y-7
 
-    def _source_note_layout(self, card: MonsterCard) -> tuple[list[str], float]:
+    def _source_note_layout(self, minisheet: MonsterMinisheet) -> tuple[list[str], float]:
         """Return source-note lines and their baseline spacing on one face."""
-        if not card.source_note:
+        if not minisheet.source_note:
             return [],0.0
         size = float(self.sizes["source_note"])
         width = self.W-2*self.M-14
-        return simpleSplit(card.source_note,self.fonts["regular"],size,width),size*1.17
+        return simpleSplit(minisheet.source_note,self.fonts["regular"],size,width),size*1.17
 
-    def _content_floor(self, card: MonsterCard) -> float:
-        lines,leading = self._source_note_layout(card)
+    def _content_floor(self, minisheet: MonsterMinisheet) -> float:
+        lines,leading = self._source_note_layout(minisheet)
         if not lines:
             return self.M
         return self.M+4+len(lines)*leading
@@ -853,9 +853,9 @@ class CardRenderer:
             return RuleBlock(f"{title}:",text)
         return RuleBlock("Special Fact:",fact)
 
-    def _prepare_fact_flow(self, card: MonsterCard) -> None:
-        """Promote overflowing quick facts into normal, labeled front rule blocks."""
-        facts = list(card.quick_facts)
+    def _prepare_fact_flow(self, minisheet: MonsterMinisheet) -> None:
+        """Promote overflowing quick facts into normal, labeled minisheet rule blocks."""
+        facts = list(minisheet.quick_facts)
         moved: list[str] = []
         width = self.W-2*self.M
         horizontal_padding = width*float(
@@ -868,9 +868,9 @@ class CardRenderer:
             if stringWidth(text,self.fonts["black"],minimum_size) <= max_width:
                 break
             moved.insert(0,facts.pop())
-        card.quick_facts = facts
+        minisheet.quick_facts = facts
         if moved:
-            card.blocks = [self._fact_rule_block(fact) for fact in moved]+card.blocks
+            minisheet.blocks = [self._fact_rule_block(fact) for fact in moved]+minisheet.blocks
 
     def _column_bounds(self) -> tuple[tuple[float,float],tuple[float,float]]:
         gutter = float(self.large_columns["gutter_in"])*PT_PER_IN
@@ -881,38 +881,38 @@ class CardRenderer:
         )
 
     def _prepare_for_current_size(
-        self, card: MonsterCard, *, columns: int = 1
+        self, minisheet: MonsterMinisheet, *, columns: int = 1
     ) -> tuple[bool, float, int | None]:
         """Measure a complete one-sided sheet at the currently selected size."""
         # Older inputs may explicitly place operational details in `overflow`.
         # On a one-sided minisheet they follow the ordinary blocks in full.
-        card.blocks = list(card.blocks)+list(card.overflow)
-        card.overflow = []
-        self._prepare_fact_flow(card)
-        self._front_header_layout(card)
-        y = self._front_block_top(card)
-        floor = self._content_floor(card)
-        if columns == 1 or len(card.blocks) < 2:
-            for block in card.blocks:
+        minisheet.blocks = list(minisheet.blocks)+list(minisheet.overflow)
+        minisheet.overflow = []
+        self._prepare_fact_flow(minisheet)
+        self._header_layout(minisheet)
+        y = self._rule_block_top(minisheet)
+        floor = self._content_floor(minisheet)
+        if columns == 1 or len(minisheet.blocks) < 2:
+            for block in minisheet.blocks:
                 y -= self._block_height(block)
             return y >= floor,max(0.0,floor-y),None
 
         bounds = self._column_bounds()
         widths = [right-left for left,right in bounds]
         heights = [
-            [self._block_height(block,width) for block in card.blocks]
+            [self._block_height(block,width) for block in minisheet.blocks]
             for width in widths
         ]
         available = y-floor
         candidates = []
-        for split in range(1,len(card.blocks)):
+        for split in range(1,len(minisheet.blocks)):
             left_height = sum(heights[0][:split])
             right_height = sum(heights[1][split:])
             candidates.append((max(left_height,right_height),split,left_height,right_height))
         used,split,left_height,right_height = min(candidates)
         return used <= available,max(0.0,used-available),split
 
-    def _prepare_minisheet(self, source: MonsterCard) -> PreparedMinisheet:
+    def _prepare_minisheet(self, source: MonsterMinisheet) -> PreparedMinisheet:
         """Choose normal unless complete measured content requires large."""
         errors: list[str] = []
         preferred = float(self.sizes["body"])
@@ -925,15 +925,15 @@ class CardRenderer:
         for large,body_size,columns in attempts:
             self._use_size(large=large)
             self.body_size = body_size
-            card = deepcopy(source)
+            minisheet = deepcopy(source)
             try:
-                fits,excess,split = self._prepare_for_current_size(card,columns=columns)
+                fits,excess,split = self._prepare_for_current_size(minisheet,columns=columns)
             except RuntimeError as exc:
                 errors.append(str(exc))
                 continue
             if fits:
                 return PreparedMinisheet(
-                    card=card,large=large,body_size=body_size,
+                    minisheet=minisheet,large=large,body_size=body_size,
                     column_split=split if columns == 2 else None,
                 )
             errors.append(f"content is {excess:.1f} pt too tall")
@@ -942,9 +942,9 @@ class CardRenderer:
             f"Text overflow for {source.name!r}: {detail} on a 5.5 x 8.5 inch minisheet"
         )
 
-    def _draw_source_note(self, card: MonsterCard) -> None:
+    def _draw_source_note(self, minisheet: MonsterMinisheet) -> None:
         c = self.c; assert c
-        lines,leading = self._source_note_layout(card)
+        lines,leading = self._source_note_layout(minisheet)
         if not lines:
             return
         size = float(self.sizes["source_note"])
@@ -957,28 +957,28 @@ class CardRenderer:
             c.drawCentredString(self.W/2,yy,line)
             yy -= leading
 
-    def _draw_minisheet(self, minisheet: PreparedMinisheet):
-        card = minisheet.card
-        self.body_size = minisheet.body_size
+    def _draw_minisheet(self, prepared: PreparedMinisheet):
+        minisheet = prepared.minisheet
+        self.body_size = prepared.body_size
         self._fill_rect(
             self.M,self.M,self.W-2*self.M,self.H-2*self.M,
-            self.colors["front_background"],
+            self.colors["minisheet_background"],
         )
-        self._header(card); y=self._dashboard(card)
-        rule_blocks_top = y-self.quick_facts_band_height if card.quick_facts else y
+        self._header(minisheet); y=self._dashboard(minisheet)
+        rule_blocks_top = y-self.quick_facts_band_height if minisheet.quick_facts else y
         self._fill_rect(
             self.M,self.M,self.W-2*self.M,rule_blocks_top-self.M,
             self.colors["rule_blocks_background"],
         )
-        y=self._facts(y,card.quick_facts)-7
-        if minisheet.column_split is None:
-            for index,block in enumerate(card.blocks):
+        y=self._facts(y,minisheet.quick_facts)-7
+        if prepared.column_split is None:
+            for index,block in enumerate(minisheet.blocks):
                 y = self._block(y,block,divider=index > 0)
         else:
             bounds = self._column_bounds()
             groups = (
-                card.blocks[:minisheet.column_split],
-                card.blocks[minisheet.column_split:],
+                minisheet.blocks[:prepared.column_split],
+                minisheet.blocks[prepared.column_split:],
             )
             for (left,right),blocks in zip(bounds,groups):
                 yy = y
@@ -986,5 +986,5 @@ class CardRenderer:
                     yy = self._block(
                         yy,block,divider=index > 0,left=left,right=right,
                     )
-        self._draw_source_note(card)
+        self._draw_source_note(minisheet)
         self._outer()

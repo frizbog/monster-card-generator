@@ -3,8 +3,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from monster_cards.normalize import NormalizationError, monster_to_card
-from monster_cards.srd import SRDError, SRDRepository
+from monster_minisheets.normalize import NormalizationError, monster_to_minisheet
+from monster_minisheets.srd import SRDError, SRDRepository
 
 
 class ExtractedSRDTests(unittest.TestCase):
@@ -39,7 +39,7 @@ class ExtractedSRDTests(unittest.TestCase):
             )
 
     def test_missing_srd_repository_explains_how_to_fix_the_path(self):
-        missing = Path(tempfile.gettempdir()) / "missing-monster-card-srd-repository"
+        missing = Path(tempfile.gettempdir()) / "missing-monster-minisheet-srd-repository"
         with self.assertRaisesRegex(
             SRDError,
             r"(?s)SRD repository was not found.*--srd PATH.*--srd ../dnd-srd-json",
@@ -75,17 +75,17 @@ class ExtractedSRDTests(unittest.TestCase):
             custom_file.write_text(json.dumps({"sections": [stat_section,action_section]}),encoding="utf-8")
 
             repo = SRDRepository(root,custom_file)
-            card = monster_to_card(repo.monster("Clockwork Goblin"))
+            minisheet = monster_to_minisheet(repo.monster("Clockwork Goblin"))
 
-            self.assertEqual(card.name,"Clockwork Goblin")
-            self.assertEqual(card.subtitle,"Small Construct, Unaligned")
-            self.assertEqual(card.ac,"16")
-            self.assertEqual(card.hp,"18")
-            self.assertEqual(card.speed,"30'")
-            self.assertEqual(card.abilities["STR"].score,12)
-            self.assertIn("Climb 20'",card.quick_facts)
-            self.assertEqual(card.blocks[0].title,"Gear Blade:")
-            self.assertEqual(card.source_note,"Generated from custom monster JSON.")
+            self.assertEqual(minisheet.name,"Clockwork Goblin")
+            self.assertEqual(minisheet.subtitle,"Small Construct, Unaligned")
+            self.assertEqual(minisheet.ac,"16")
+            self.assertEqual(minisheet.hp,"18")
+            self.assertEqual(minisheet.speed,"30'")
+            self.assertEqual(minisheet.abilities["STR"].score,12)
+            self.assertIn("Climb 20'",minisheet.quick_facts)
+            self.assertEqual(minisheet.blocks[0].title,"Gear Blade:")
+            self.assertEqual(minisheet.source_note,"Generated from custom monster JSON.")
 
     def test_extracted_resource_is_hydrated_and_normalized(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -161,19 +161,19 @@ class ExtractedSRDTests(unittest.TestCase):
                 json.dumps(legendary_section), encoding="utf-8"
             )
 
-            card = monster_to_card(SRDRepository(root).monster("Goblin Warrior"))
+            minisheet = monster_to_minisheet(SRDRepository(root).monster("Goblin Warrior"))
 
-            self.assertEqual(card.subtitle, "Small Fey (Goblinoid), Chaotic Neutral")
-            self.assertEqual(card.cr, "1/4")
-            self.assertEqual(card.speed, "30'")
-            self.assertIn("Fly 60'", card.quick_facts)
-            self.assertIn("Swim 20'", card.quick_facts)
-            self.assertEqual(card.abilities["STR"].score, 8)
-            self.assertEqual(card.abilities["DEX"].modifier, 2)
-            self.assertEqual(card.passive_perception, "9")
-            self.assertIn("Stealth +6", card.quick_facts)
+            self.assertEqual(minisheet.subtitle, "Small Fey (Goblinoid), Chaotic Neutral")
+            self.assertEqual(minisheet.cr, "1/4")
+            self.assertEqual(minisheet.speed, "30'")
+            self.assertIn("Fly 60'", minisheet.quick_facts)
+            self.assertIn("Swim 20'", minisheet.quick_facts)
+            self.assertEqual(minisheet.abilities["STR"].score, 8)
+            self.assertEqual(minisheet.abilities["DEX"].modifier, 2)
+            self.assertEqual(minisheet.passive_perception, "9")
+            self.assertIn("Stealth +6", minisheet.quick_facts)
             self.assertEqual(
-                [block.title for block in card.blocks],
+                [block.title for block in minisheet.blocks],
                 [
                     "Sneaky:", "Escape Artist:", "Scimitar:", "Shortbow:",
                     "Bonus Action - Nimble Escape:", "Reaction - Parry:",
@@ -181,12 +181,12 @@ class ExtractedSRDTests(unittest.TestCase):
                     "Quick Slash (Costs 2 Actions):",
                 ],
             )
-            self.assertTrue(card.blocks[2].text.startswith("Melee Attack Roll:"))
-            self.assertTrue(card.blocks[3].text.startswith("Ranged Attack Roll:"))
+            self.assertTrue(minisheet.blocks[2].text.startswith("Melee Attack Roll:"))
+            self.assertTrue(minisheet.blocks[3].text.startswith("Ranged Attack Roll:"))
 
     def test_incomplete_schema_fails_instead_of_rendering_defaults(self):
         with self.assertRaisesRegex(NormalizationError, "schema may not be supported"):
-            monster_to_card({"name": "Mystery Creature"})
+            monster_to_minisheet({"name": "Mystery Creature"})
 
 
 if __name__ == "__main__":

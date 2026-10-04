@@ -6,6 +6,6 @@ output/*.pdf
 custom/*
 !custom/README.md
 
-kits/*.json
-!kits/example-goblins.json
+rosters/*.json
+!rosters/example-goblins.json
 AGENTS.md

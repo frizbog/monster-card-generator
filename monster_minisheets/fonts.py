@@ -35,7 +35,7 @@ WEIGHT_STYLES = {
     900: "Black",
 }
 
-DERIVED_FAMILY = "Monster Card Noto Sans"
+DERIVED_FAMILY = "Monster Minisheet Noto Sans"
 CACHE_FORMAT_VERSION = 2
 
 
@@ -74,12 +74,12 @@ def _font_cache_dir() -> Path:
     if configured := os.environ.get("NOTO_SANS_CACHE_DIR"):
         return Path(configured).expanduser()
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "monster-card-generator" / "fonts"
+        return Path.home() / "Library" / "Caches" / "monster-minisheet-generator" / "fonts"
     if sys.platform == "win32":
         root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        return root / "monster-card-generator" / "fonts"
+        return root / "monster-minisheet-generator" / "fonts"
     root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return root / "monster-card-generator" / "fonts"
+    return root / "monster-minisheet-generator" / "fonts"
 
 
 def _name_instance(font, weight: int) -> None:
@@ -91,7 +91,7 @@ def _name_instance(font, weight: int) -> None:
         2: style,
         3: f"{DERIVED_FAMILY}; {style}",
         4: f"{DERIVED_FAMILY} {style}",
-        6: f"MonsterCardNotoSans-{style}",
+        6: f"MonsterMinisheetNotoSans-{style}",
         16: DERIVED_FAMILY,
         17: style,
     }
@@ -120,7 +120,7 @@ def _variable_instance(path: Path, weight: int) -> Path | BytesIO:
 
     stat = path.stat()
     cache_path = _font_cache_dir() / (
-        f"MonsterCardNotoSans-v{CACHE_FORMAT_VERSION}-{stat.st_size}-"
+        f"MonsterMinisheetNotoSans-v{CACHE_FORMAT_VERSION}-{stat.st_size}-"
         f"{stat.st_mtime_ns}-{WEIGHT_STYLES[weight]}.ttf"
     )
     if cache_path.is_file() and cache_path.stat().st_size:

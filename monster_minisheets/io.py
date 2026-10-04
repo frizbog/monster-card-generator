@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .model import Ability, MonsterCard, RuleBlock
+from .model import Ability, MonsterMinisheet, RuleBlock
 
 
-def load_manual_cards(path: str | Path) -> list[MonsterCard]:
+def load_manual_minisheets(path: str | Path) -> list[MonsterMinisheet]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    return [_card(x) for x in payload]
+    return [_minisheet(x) for x in payload]
 
 
-def _card(x) -> MonsterCard:
-    return MonsterCard(
+def _minisheet(x) -> MonsterMinisheet:
+    return MonsterMinisheet(
         name=x["name"], subtitle=x["subtitle"], cr=str(x["cr"]), ac=str(x["ac"]), hp=str(x["hp"]),
         speed=str(x["speed"]), passive_perception=str(x["passive_perception"]),
         abilities={k: Ability(int(v["score"]),int(v["modifier"])) for k,v in x["abilities"].items()},

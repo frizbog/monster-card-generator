@@ -6,14 +6,14 @@ import json
 from pathlib import Path
 import sys
 
-from monster_cards.io import load_manual_cards
-from monster_cards.normalize import monster_to_card
-from monster_cards.overrides import apply_override, load_override
-from monster_cards.renderer import CardRenderer
-from monster_cards.srd import SRDError, SRDRepository
+from monster_minisheets.io import load_manual_minisheets
+from monster_minisheets.normalize import monster_to_minisheet
+from monster_minisheets.overrides import apply_override, load_override
+from monster_minisheets.renderer import MinisheetRenderer
+from monster_minisheets.srd import SRDError, SRDRepository
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_STYLE = ROOT / "config" / "card_style.json"
+DEFAULT_STYLE = ROOT / "config" / "minisheet_style.json"
 DEFAULT_SRD = "../dnd-srd-json"
 DEFAULT_CUSTOM_MONSTERS = ROOT / "custom"
 
@@ -36,14 +36,14 @@ def add_source_options(command: argparse.ArgumentParser) -> None:
 
 
 def repository_from_args(args: argparse.Namespace) -> SRDRepository:
-    """Build the shared data source used by the inspect, monster, and kit commands."""
+    """Build the shared data source used by the inspect, monster, and roster commands."""
     return SRDRepository(args.srd, args.custom_monsters)
 
 
-def normalized_cards(repo: SRDRepository, names: list[str], override: str | None = None):
-    """Turn SRD/custom records into renderable cards, applying one optional edit file."""
+def normalized_minisheets(repo: SRDRepository, names: list[str], override: str | None = None):
+    """Turn SRD/custom records into renderable minisheets, applying one optional edit file."""
     return [
-        apply_override(monster_to_card(repo.monster(name)), load_override(override))
+        apply_override(monster_to_minisheet(repo.monster(name)), load_override(override))
         for name in names
     ]
 
@@ -63,10 +63,10 @@ different JSON file or directory.
     parser = argparse.ArgumentParser(
         description="Generate fast-play D&D monster minisheets as PDFs.",
         epilog="""examples:
-  cards.py monster "Goblin Warrior"
-  cards.py monster "Clockwork Goblin" \\
+  minisheets.py monster "Goblin Warrior"
+  minisheets.py monster "Clockwork Goblin" \\
     --custom-monsters custom
-  cards.py kit kits/goblins.json --srd /path/to/dnd-srd-json \\
+  minisheets.py roster rosters/example-goblins.json --srd /path/to/dnd-srd-json \\
     --custom-monsters /path/to/custom-folder
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -76,7 +76,7 @@ different JSON file or directory.
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_sample = sub.add_parser("sample", help="Render the bundled two-monster smoke test; no SRD repo required.")
-    p_sample.add_argument("--out", default=str(ROOT / "output" / "sample-cards.pdf"))
+    p_sample.add_argument("--out", default=str(ROOT / "output" / "sample-minisheets.pdf"))
     p_sample.add_argument("--style", default=str(DEFAULT_STYLE))
 
     p_inspect = sub.add_parser(
@@ -91,27 +91,27 @@ different JSON file or directory.
     )
     p_monster.add_argument("name", nargs="+", help="One or more monster names (quote names containing spaces).")
     add_source_options(p_monster)
-    p_monster.add_argument("--override", help="Optional JSON editorial override for display/card text.")
+    p_monster.add_argument("--override", help="Optional JSON editorial override for display/minisheet text.")
     p_monster.add_argument("--out")
     p_monster.add_argument("--style", default=str(DEFAULT_STYLE))
-    p_monster.add_argument("--dump-normalized", action="store_true", help="Print normalized card JSON and exit.")
+    p_monster.add_argument("--dump-normalized", action="store_true", help="Print normalized minisheet JSON and exit.")
 
-    p_kit = sub.add_parser(
-        "kit", help="Render every monster listed in a kit JSON file.",
+    p_roster = sub.add_parser(
+        "roster", help="Render every monster listed in a roster JSON file.",
         epilog=location_help, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_kit.add_argument("kit_file")
-    add_source_options(p_kit)
-    p_kit.add_argument("--out")
-    p_kit.add_argument("--style", default=str(DEFAULT_STYLE))
+    p_roster.add_argument("roster_file")
+    add_source_options(p_roster)
+    p_roster.add_argument("--out")
+    p_roster.add_argument("--style", default=str(DEFAULT_STYLE))
 
     args = parser.parse_args()
     try:
         # `sample` is intentionally self-contained; every other command starts
         # from the local SRD plus the project's custom-document directory.
         if args.command == "sample":
-            cards = load_manual_cards(ROOT / "examples" / "manual_monsters.json")
-            path = CardRenderer(args.style).render(cards, args.out)
+            minisheets = load_manual_minisheets(ROOT / "examples" / "manual_monsters.json")
+            path = MinisheetRenderer(args.style).render(minisheets, args.out)
             print(path)
             return 0
 
@@ -122,10 +122,10 @@ different JSON file or directory.
         if args.command == "monster":
             repo = repository_from_args(args)
             if args.override and len(args.name) > 1:
-                raise RuntimeError("--override can only be used when rendering one monster; use a kit for per-monster overrides")
-            cards = normalized_cards(repo, args.name, args.override)
+                raise RuntimeError("--override can only be used when rendering one monster; use a roster for per-monster overrides")
+            minisheets = normalized_minisheets(repo, args.name, args.override)
             if args.dump_normalized:
-                payload = cards[0].to_dict() if len(cards) == 1 else [card.to_dict() for card in cards]
+                payload = minisheets[0].to_dict() if len(minisheets) == 1 else [minisheet.to_dict() for minisheet in minisheets]
                 print(json.dumps(payload, indent=2))
                 return 0
             if args.out:
@@ -133,16 +133,16 @@ different JSON file or directory.
             elif len(args.name) == 1:
                 out = str(ROOT / "output" / f"{args.name[0].lower().replace(' ','-')}.pdf")
             else:
-                out = str(ROOT / "output" / "monster-cards.pdf")
-            path = CardRenderer(args.style).render(cards, out)
+                out = str(ROOT / "output" / "monster-minisheets.pdf")
+            path = MinisheetRenderer(args.style).render(minisheets, out)
             print(path)
             return 0
 
-        if args.command == "kit":
+        if args.command == "roster":
             repo = repository_from_args(args)
-            kit_path = Path(args.kit_file)
-            data = json.loads(kit_path.read_text(encoding="utf-8"))
-            cards = []
+            roster_path = Path(args.roster_file)
+            data = json.loads(roster_path.read_text(encoding="utf-8"))
+            minisheets = []
             for entry in data["monsters"]:
                 if isinstance(entry, str):
                     name, override = entry, None
@@ -150,19 +150,19 @@ different JSON file or directory.
                     name = entry["name"]
                     override = entry.get("override")
                     if override:
-                        override = str((kit_path.parent / override).resolve())
+                        override = str((roster_path.parent / override).resolve())
                 try:
                     monster = repo.monster(name)
                 except SRDError as exc:
                     print(f"WARNING: Skipping {name!r}: {exc}", file=sys.stderr)
                     continue
-                card = monster_to_card(monster)
-                cards.append(apply_override(card, load_override(override)))
-            if not cards:
-                print("WARNING: No kit monsters were found; no PDF was written.", file=sys.stderr)
+                minisheet = monster_to_minisheet(monster)
+                minisheets.append(apply_override(minisheet, load_override(override)))
+            if not minisheets:
+                print("WARNING: No roster monsters were found; no PDF was written.", file=sys.stderr)
                 return 0
-            out = args.out or str(ROOT / "output" / f"{kit_path.stem}.pdf")
-            path = CardRenderer(args.style).render(cards, out)
+            out = args.out or str(ROOT / "output" / f"{roster_path.stem}.pdf")
+            path = MinisheetRenderer(args.style).render(minisheets, out)
             print(path)
             return 0
     except (SRDError, RuntimeError, FileNotFoundError, KeyError, json.JSONDecodeError) as exc:

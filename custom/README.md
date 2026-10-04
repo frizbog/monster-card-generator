@@ -6,9 +6,9 @@ Keep monster documents under `monsters/` (or another subfolder); no command-line
 option is needed for the usual case.
 
 ```bash
-python cards.py inspect-srd
-python cards.py monster "Your Monster"
-python cards.py kit kits/your-kit.json
+python minisheets.py inspect-srd
+python minisheets.py monster "Your Monster"
+python minisheets.py roster rosters/your-roster.json
 ```
 
 To use a different file or folder for a run, pass
@@ -18,10 +18,10 @@ To use a different file or folder for a run, pass
 ## Adding a document that works
 
 Each JSON file must be a complete document using the same `sections` format as
-the SRD repository's `monsters-a-z.json` document. The existing
-[`custom-monsters.json`](custom-monsters.json) is a working example and the
-safest starting point: copy it or export another document in that format, then
-add your own stat-block sections.
+the SRD repository's `monsters-a-z.json` document. Existing files under
+[`monsters/`](monsters/) are working examples and the safest starting points:
+copy one or export another document in that format, then add your own stat-block
+sections.
 
 For each monster, the stat-block section needs:
 
@@ -37,5 +37,5 @@ those exact titles so the generator can recognize it.
 
 Custom monsters override SRD monsters with the same name. Do not define the
 same custom monster name in two files: the generator reports that as an error
-so an accidental override cannot go unnoticed. Run `python cards.py inspect-srd`
-after adding a document to confirm it is readable before rendering cards.
+so an accidental override cannot go unnoticed. Run `python minisheets.py inspect-srd`
+after adding a document to confirm it is readable before rendering minisheets.

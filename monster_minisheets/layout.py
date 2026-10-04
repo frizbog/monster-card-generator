@@ -20,10 +20,10 @@ class SheetLayout:
 
     page_width: float
     page_height: float
-    card_width: float
-    card_height: float
-    large_card_width: float
-    large_card_height: float
+    minisheet_width: float
+    minisheet_height: float
+    large_minisheet_width: float
+    large_minisheet_height: float
     artwork_inset: float
 
     @classmethod
@@ -32,10 +32,10 @@ class SheetLayout:
         layout = cls(
             page_width=float(style["page_width_in"]) * PT_PER_IN,
             page_height=float(style["page_height_in"]) * PT_PER_IN,
-            card_width=float(style["card_width_in"]) * PT_PER_IN,
-            card_height=float(style["card_height_in"]) * PT_PER_IN,
-            large_card_width=float(style["large_card_width_in"]) * PT_PER_IN,
-            large_card_height=float(style["large_card_height_in"]) * PT_PER_IN,
+            minisheet_width=float(style["minisheet_width_in"]) * PT_PER_IN,
+            minisheet_height=float(style["minisheet_height_in"]) * PT_PER_IN,
+            large_minisheet_width=float(style["large_minisheet_width_in"]) * PT_PER_IN,
+            large_minisheet_height=float(style["large_minisheet_height_in"]) * PT_PER_IN,
             artwork_inset=float(style["margin_pt"]),
         )
         layout.validate_imposition()
@@ -49,10 +49,10 @@ class SheetLayout:
         """Require dimensions that tile the page using the documented 2x2 grid."""
         tolerance = 0.01
         relationships = (
-            (2 * self.card_width, self.page_width, "two normal minisheet widths"),
-            (2 * self.card_height, self.page_height, "two normal minisheet heights"),
-            (self.large_card_width, self.row_height, "rotated large minisheet width"),
-            (self.large_card_height, self.page_width, "rotated large minisheet height"),
+            (2 * self.minisheet_width, self.page_width, "two normal minisheet widths"),
+            (2 * self.minisheet_height, self.page_height, "two normal minisheet heights"),
+            (self.large_minisheet_width, self.row_height, "rotated large minisheet width"),
+            (self.large_minisheet_height, self.page_width, "rotated large minisheet height"),
         )
         for actual, expected, label in relationships:
             if abs(actual - expected) > tolerance:

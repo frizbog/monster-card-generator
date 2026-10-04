@@ -1,13 +1,13 @@
 {
   "page_width_in": 8.5,
   "page_height_in": 11,
-  "card_width_in": 4.25,
-  "card_height_in": 5.5,
-  "large_card_width_in": 5.5,
-  "large_card_height_in": 8.5,
+  "minisheet_width_in": 4.25,
+  "minisheet_height_in": 5.5,
+  "large_minisheet_width_in": 5.5,
+  "large_minisheet_height_in": 8.5,
   "margin_pt": 18,
   "layout": {
-    "front_header": {
+    "header": {
       "height_in": 0.75,
       "horizontal_padding_width_percent": 2.4,
       "vertical_padding_height_percent": 9.25,
@@ -52,8 +52,8 @@
     "trim_guide_width_pt": 0.7
   },
   "colors": {
-    "front_background": "none",
-    "front_border": "#36515b",
+    "minisheet_background": "none",
+    "minisheet_border": "#36515b",
     "header_band_background": "#17657f",
     "header_band_text": "#ffffff",
     "primary_stats_background": "none",

@@ -21,7 +21,7 @@ class RuleBlock:
 
 
 @dataclass
-class MonsterCard:
+class MonsterMinisheet:
     name: str
     subtitle: str
     cr: str
